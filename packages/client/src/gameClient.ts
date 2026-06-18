@@ -1,10 +1,11 @@
-import { GameState, GameMessage, ConquerPayload } from '@openfront/core';
+import { GameState, GameMessage, ConquerPayload, BuildPayload, BuildingType } from '@openfront/core';
 
 type StateCallback = (state: GameState) => void;
 type TickCallback = (tick: number, players: GameState['players']) => void;
 type ErrorCallback = (msg: string) => void;
 type ConnectedCallback = (playerId: string, state: GameState) => void;
 type DisconnectedCallback = () => void;
+type AllianceProposalCallback = (fromPlayerId: string, fromName: string, fromColor: number) => void;
 
 export class GameClient {
   private ws: WebSocket | null = null;
@@ -16,6 +17,7 @@ export class GameClient {
   private onError: ErrorCallback | null = null;
   private onConnected: ConnectedCallback | null = null;
   private onDisconnected: DisconnectedCallback | null = null;
+  private onAllianceProposalCb: AllianceProposalCallback | null = null;
 
   connect(url: string): void {
     this.ws = new WebSocket(url);
@@ -66,12 +68,16 @@ export class GameClient {
         break;
       }
       case 'PLAYER_LEAVE': {
-        // State will be refreshed on next GAME_STATE
         break;
       }
       case 'ERROR': {
         const payload = msg.payload as { message: string };
         this.onError?.(payload.message);
+        break;
+      }
+      case 'ALLIANCE_PROPOSAL': {
+        const payload = msg.payload as { fromPlayerId: string; fromName: string; fromColor: number };
+        this.onAllianceProposalCb?.(payload.fromPlayerId, payload.fromName, payload.fromColor);
         break;
       }
     }
@@ -91,6 +97,22 @@ export class GameClient {
     this.ws.send(JSON.stringify({ type: 'SET_NAME', payload: { name } }));
   }
 
+  sendBuild(tileId: number, buildingType: BuildingType): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const payload: BuildPayload = { tileId, buildingType };
+    this.ws.send(JSON.stringify({ type: 'BUILD', payload }));
+  }
+
+  sendProposeAlliance(targetPlayerId: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type: 'PROPOSE_ALLIANCE', payload: { targetPlayerId } }));
+  }
+
+  sendAllianceResponse(fromPlayerId: string, accept: boolean): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type: 'ALLIANCE_RESPONSE', payload: { fromPlayerId, accept } }));
+  }
+
   getState(): GameState | null { return this.state; }
   getPlayerId(): string | null { return this.playerId; }
 
@@ -99,4 +121,5 @@ export class GameClient {
   onServerError(cb: ErrorCallback): void { this.onError = cb; }
   onConnect(cb: ConnectedCallback): void { this.onConnected = cb; }
   onDisconnect(cb: DisconnectedCallback): void { this.onDisconnected = cb; }
+  onAllianceProposal(cb: AllianceProposalCallback): void { this.onAllianceProposalCb = cb; }
 }

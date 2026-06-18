@@ -1,5 +1,7 @@
 import { Tile, TileType } from './types';
 
+export const WATER_TILE_TYPES = new Set<TileType>(['ocean', 'lake']);
+
 const TERRAIN_COST: Record<TileType, number> = {
   plains: 1.0,
   highland: 1.5,

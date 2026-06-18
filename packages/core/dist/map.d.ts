@@ -1,4 +1,5 @@
-import { Tile } from './types';
+import { Tile, TileType } from './types';
+export declare const WATER_TILE_TYPES: Set<TileType>;
 export declare function getTileIndex(x: number, y: number, width: number): number;
 export declare function getTileCoords(id: number, width: number): {
     x: number;

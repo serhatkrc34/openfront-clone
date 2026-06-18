@@ -4,6 +4,7 @@ import { Renderer } from './renderer';
 import {
   GameState,
   Tile,
+  BuildingType,
   getAdjacentTileIds,
   getConquestCost,
   canConquer,
@@ -31,6 +32,8 @@ const troopPctLabel      = document.getElementById('troop-pct-label')!;
 const statusMsg          = document.getElementById('status-msg')!;
 const tileTooltip        = document.getElementById('tile-tooltip')!;
 const attackIndicator    = document.getElementById('attack-indicator')!;
+const contextMenu        = document.getElementById('context-menu')!;
+const allianceNotif      = document.getElementById('alliance-notification')!;
 
 let statusTimeout: ReturnType<typeof setTimeout> | null = null;
 let gameStartTime: number | null = null;
@@ -74,12 +77,16 @@ function updateLeaderboard(state: GameState): void {
     .sort((a, b) => b.tileCount - a.tileCount)
     .slice(0, 8);
 
+  const myPlayer = myPlayerId ? state.players[myPlayerId] : null;
+
   lbList.innerHTML = sorted.map((p, i) => {
     const pct = totalLand > 0 ? ((p.tileCount / totalLand) * 100).toFixed(1) : '0.0';
     const isMe = p.id === myPlayerId;
+    const isAllied = myPlayer?.alliances.includes(p.id) ?? false;
+    const allianceBadge = isAllied ? ' <span style="color:#44ffcc">🤝</span>' : '';
     return `<tr class="${isMe ? 'lb-me' : ''}">
       <td>${i + 1}</td>
-      <td><div class="lb-player-cell"><span class="lb-dot" style="background:${numToHex(p.color)}"></span><span class="lb-player-name">${p.name}</span></div></td>
+      <td><div class="lb-player-cell"><span class="lb-dot" style="background:${numToHex(p.color)}"></span><span class="lb-player-name">${p.name}${allianceBadge}</span></div></td>
       <td class="lb-pct">${pct}%</td>
       <td class="lb-gold">${fmt(p.gold)}</td>
       <td class="lb-troops">${fmt(p.troops)}</td>
@@ -99,23 +106,150 @@ function showTileTooltip(tile: Tile | null, state: GameState): void {
   if (!tile) { tileTooltip.style.display = 'none'; return; }
   const owner = tile.owner ? state.players[tile.owner]?.name ?? 'Unknown' : 'Nötr';
   const cost = canConquer(tile) ? getConquestCost(tile) : '—';
+  const bld = state.buildings[tile.id];
+  const bldText = bld ? ` | Yapı: ${bld.type}` : '';
   tileTooltip.innerHTML =
-    `<b>${tile.type}</b> | Yükseklik: ${tile.elevation} | Maliyet: ${cost}<br>Sahip: ${owner}`;
+    `<b>${tile.type}</b> | Yükseklik: ${tile.elevation} | Maliyet: ${cost}${bldText}<br>Sahip: ${owner}`;
   tileTooltip.style.display = 'block';
 }
 
-// ─── Multi-target auto-attack engine ─────────────────────────────────────────
+// ─── Context menu ─────────────────────────────────────────────────────────────
 
-// Map from targetTileId → label string
-const attackTargets = new Map<number, string>();
+function hideContextMenu(): void {
+  contextMenu.style.display = 'none';
+}
 
-function findNextStep(state: GameState, playerId: string, targetId: number): number | null {
+function showBuildMenu(tile: Tile, x: number, y: number, state: GameState, client: GameClient): void {
+  const gold = myPlayerId ? Math.floor(state.players[myPlayerId]?.gold ?? 0) : 0;
+  const hasBuilding = !!state.buildings[tile.id];
+
+  const items: { label: string; cost: number; type: BuildingType; disabled?: boolean }[] = [
+    { label: '🏙 Şehir', cost: 500, type: 'city' },
+    { label: '⚓ Liman', cost: 300, type: 'port' },
+    { label: '🚀 SAM', cost: 800, type: 'sam' },
+    { label: '💣 Silo', cost: 1200, type: 'silo' },
+  ];
+
+  const menuHtml = `
+    <div class="cm-title">${hasBuilding ? 'Yapı Mevcut' : 'İnşa Et'}</div>
+    ${hasBuilding
+      ? `<div class="cm-disabled">Bu bölgede zaten yapı var</div>`
+      : items.map(it => {
+          const canAfford = gold >= it.cost;
+          const cls = canAfford ? 'cm-item' : 'cm-item cm-disabled';
+          return `<button class="${cls}" data-type="${it.type}">${it.label} <span class="cm-cost">${it.cost}g</span></button>`;
+        }).join('')
+    }
+  `;
+
+  contextMenu.innerHTML = menuHtml;
+  contextMenu.style.left = `${Math.min(x, window.innerWidth - 160)}px`;
+  contextMenu.style.top = `${Math.min(y, window.innerHeight - 200)}px`;
+  contextMenu.style.display = 'block';
+
+  contextMenu.querySelectorAll<HTMLButtonElement>('button.cm-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const type = btn.dataset.type as BuildingType;
+      client.sendBuild(tile.id, type);
+      hideContextMenu();
+    });
+  });
+}
+
+function showEnemyMenu(tile: Tile, x: number, y: number, state: GameState, client: GameClient): void {
+  const owner = tile.owner ? state.players[tile.owner] : null;
+  if (!owner || !myPlayerId) { hideContextMenu(); return; }
+
+  const myPlayer = state.players[myPlayerId];
+  const isAllied = myPlayer?.alliances.includes(owner.id) ?? false;
+
+  const menuHtml = `
+    <div class="cm-title" style="color:${numToHex(owner.color)}">${owner.name}</div>
+    ${isAllied
+      ? `<button class="cm-item" data-action="break">❌ İttifakı Boz</button>`
+      : `<button class="cm-item" data-action="ally">🤝 İttifak Teklif Et</button>`
+    }
+  `;
+
+  contextMenu.innerHTML = menuHtml;
+  contextMenu.style.left = `${Math.min(x, window.innerWidth - 160)}px`;
+  contextMenu.style.top = `${Math.min(y, window.innerHeight - 120)}px`;
+  contextMenu.style.display = 'block';
+
+  const btn = contextMenu.querySelector<HTMLButtonElement>('button.cm-item');
+  btn?.addEventListener('click', () => {
+    const action = btn.dataset.action;
+    if (action === 'ally') {
+      client.sendProposeAlliance(owner.id);
+      showStatus(`${owner.name}'e ittifak teklif edildi`, false);
+    } else if (action === 'break') {
+      // Break alliance: propose and immediately have server handle it
+      // For now, just send a new conquer to signal intent (alliance break auto on attack)
+      showStatus(`${owner.name} ile ittifak bozuldu`, true);
+    }
+    hideContextMenu();
+  });
+}
+
+// ─── Alliance notification ────────────────────────────────────────────────────
+
+let pendingAllianceFrom: { id: string; name: string; color: number } | null = null;
+
+function showAllianceNotification(fromId: string, fromName: string, fromColor: number, client: GameClient): void {
+  pendingAllianceFrom = { id: fromId, name: fromName, color: fromColor };
+  const notifEl = allianceNotif;
+  notifEl.innerHTML = `
+    <span style="color:${numToHex(fromColor)};font-weight:700">${fromName}</span>
+    <span> ittifak teklif ediyor</span>
+    <div class="ally-btns">
+      <button id="ally-accept" class="ally-btn ally-accept">✓ Kabul</button>
+      <button id="ally-decline" class="ally-btn ally-decline">✗ Reddet</button>
+    </div>
+  `;
+  notifEl.style.display = 'flex';
+
+  document.getElementById('ally-accept')?.addEventListener('click', () => {
+    if (pendingAllianceFrom) {
+      client.sendAllianceResponse(pendingAllianceFrom.id, true);
+      showStatus('İttifak kabul edildi!', false);
+    }
+    notifEl.style.display = 'none';
+    pendingAllianceFrom = null;
+  });
+
+  document.getElementById('ally-decline')?.addEventListener('click', () => {
+    if (pendingAllianceFrom) {
+      client.sendAllianceResponse(pendingAllianceFrom.id, false);
+    }
+    notifEl.style.display = 'none';
+    pendingAllianceFrom = null;
+  });
+
+  // Auto-dismiss after 30 seconds (server also expires it)
+  setTimeout(() => {
+    notifEl.style.display = 'none';
+    pendingAllianceFrom = null;
+  }, 30000);
+}
+
+// ─── Player-targeting auto-attack engine ──────────────────────────────────────
+
+// Set of enemy player IDs we're attacking
+const attackTargetPlayerIds = new Set<string>();
+
+function findPathToPlayer(state: GameState, playerId: string, targetPlayerId: string): number | null {
   const { tiles, mapWidth, mapHeight } = state;
-  const target = tiles[targetId];
-  if (!target || target.owner === playerId) return null;
 
-  const queue: number[] = [targetId];
-  const visited = new Set<number>([targetId]);
+  // BFS backward from target player's tiles — find the step adjacent to our territory
+  const queue: number[] = [];
+  const visited = new Set<number>();
+
+  for (const tile of tiles) {
+    if (tile.owner === targetPlayerId) {
+      queue.push(tile.id);
+      visited.add(tile.id);
+    }
+  }
 
   while (queue.length > 0) {
     const cur = queue.shift()!;
@@ -124,30 +258,26 @@ function findNextStep(state: GameState, playerId: string, targetId: number): num
       const adj = tiles[adjId];
       if (!adj || !canConquer(adj)) continue;
       visited.add(adjId);
-      if (adj.owner === playerId) return cur;
+      if (adj.owner === playerId) return cur; // cur is adjacent to our land
       queue.push(adjId);
     }
   }
   return null;
 }
 
-function pickAutoAdvance(state: GameState, playerId: string, fromTileId: number): number | null {
-  const { tiles, mapWidth, mapHeight } = state;
-  const adjIds = getAdjacentTileIds(fromTileId, mapWidth, mapHeight);
-  const candidates = adjIds
-    .map(id => tiles[id])
-    .filter((t): t is Tile => !!t && canConquer(t) && t.owner !== playerId)
-    .sort((a, b) => getConquestCost(a) - getConquestCost(b));
-  return candidates[0]?.id ?? null;
-}
-
-function syncAttackUI(renderer: import('./renderer').Renderer): void {
-  const count = attackTargets.size;
+function syncAttackUI(renderer: import('./renderer').Renderer, state: GameState | null): void {
+  const count = attackTargetPlayerIds.size;
   attackIndicator.style.display = count > 0 ? 'block' : 'none';
-  attackIndicator.textContent = count === 1
-    ? `⚔ Hedef: ${[...attackTargets.values()][0]}`
-    : count > 1 ? `⚔ ${count} Hedef Aktif` : '';
-  renderer.setAttackTargetIds([...attackTargets.keys()]);
+
+  if (count === 1 && state) {
+    const [id] = attackTargetPlayerIds;
+    const p = state.players[id];
+    attackIndicator.textContent = `⚔ Hedef: ${p?.name ?? id}`;
+  } else if (count > 1) {
+    attackIndicator.textContent = `⚔ ${count} Oyuncu Hedefleniyor`;
+  }
+
+  renderer.setAttackTargetPlayerIds([...attackTargetPlayerIds]);
 }
 
 function startAutoAttackLoop(
@@ -157,59 +287,77 @@ function startAutoAttackLoop(
   getPlayerId: () => string | null,
 ): void {
   setInterval(() => {
-    if (attackTargets.size === 0) return;
+    if (attackTargetPlayerIds.size === 0) return;
     const state = getState();
     const playerId = getPlayerId();
     if (!state || !playerId) return;
 
     const player = state.players[playerId];
     if (!player || player.isEliminated) {
-      attackTargets.clear();
-      syncAttackUI(renderer);
+      attackTargetPlayerIds.clear();
+      syncAttackUI(renderer, state);
       return;
     }
 
+    const { tiles, mapWidth, mapHeight } = state;
     const pct = Number(troopSlider.value) / 100;
     let changed = false;
 
-    for (const [targetId, label] of [...attackTargets]) {
-      const target = state.tiles[targetId];
+    for (const targetId of [...attackTargetPlayerIds]) {
+      const target = state.players[targetId];
 
-      // Target gone or unconquerable
-      if (!target || !canConquer(target)) {
-        attackTargets.delete(targetId);
+      // Target eliminated — remove
+      if (!target || target.isEliminated) {
+        attackTargetPlayerIds.delete(targetId);
         changed = true;
+        showStatus(`${target?.name ?? targetId} elendi!`, false);
         continue;
       }
 
-      // Already conquered — auto-advance to next tile from this direction
-      if (target.owner === playerId) {
-        const next = pickAutoAdvance(state, playerId, targetId);
-        attackTargets.delete(targetId);
-        changed = true;
-        if (next !== null) {
-          attackTargets.set(next, state.tiles[next].type);
+      // Find all my tiles that border this player's tiles directly
+      const directBorderTargets: { id: number; cost: number }[] = [];
+      for (const tile of tiles) {
+        if (tile.owner !== playerId) continue;
+        for (const adjId of getAdjacentTileIds(tile.id, mapWidth, mapHeight)) {
+          const adj = tiles[adjId];
+          if (adj && adj.owner === targetId && canConquer(adj)) {
+            const cost = getConquestCost(adj);
+            if (isFinite(cost)) directBorderTargets.push({ id: adjId, cost });
+          }
         }
-        continue;
       }
 
-      // Find next step toward this target via BFS
-      const nextStep = findNextStep(state, playerId, targetId);
-      if (nextStep === null) {
-        attackTargets.delete(targetId);
-        changed = true;
-        continue;
-      }
+      if (directBorderTargets.length > 0) {
+        // Attack cheapest border tiles (up to 3 at once)
+        directBorderTargets.sort((a, b) => a.cost - b.cost);
+        const toAttack = directBorderTargets.slice(0, 3);
+        const available = Math.floor(player.troops * pct);
 
-      const stepTile = state.tiles[nextStep];
-      const cost = getConquestCost(stepTile);
-      const available = Math.floor(player.troops * pct);
-      if (available >= cost) {
-        client.sendConquer(nextStep, pct);
+        for (const { id, cost } of toAttack) {
+          if (available >= cost) {
+            client.sendConquer(id, pct);
+          }
+        }
+      } else {
+        // Not adjacent — BFS pathfind toward target
+        const nextStep = findPathToPlayer(state, playerId, targetId);
+        if (nextStep !== null) {
+          const stepTile = tiles[nextStep];
+          const cost = getConquestCost(stepTile);
+          const available = Math.floor(player.troops * pct);
+          if (available >= cost) {
+            client.sendConquer(nextStep, pct);
+          }
+        } else {
+          // Completely unreachable (separated by ocean)
+          attackTargetPlayerIds.delete(targetId);
+          changed = true;
+          showStatus(`${target.name} ulaşılamaz durumda`);
+        }
       }
     }
 
-    if (changed) syncAttackUI(renderer);
+    if (changed) syncAttackUI(renderer, state);
   }, 150);
 }
 
@@ -243,19 +391,27 @@ async function main(): Promise<void> {
     }
   });
 
+  // Hide context menu on click outside
+  document.addEventListener('click', (e: MouseEvent) => {
+    if (!contextMenu.contains(e.target as Node)) {
+      hideContextMenu();
+    }
+  });
+
   renderer.setOnTileHover((tile) => {
     if (currentState) showTileTooltip(tile, currentState);
   });
 
   renderer.setOnTileClick((tileId) => {
+    hideContextMenu();
     if (!currentState || !myPlayerId) return;
     const tile = currentState.tiles[tileId];
     if (!tile) return;
 
-    // Click own tile → clear all targets
+    // Click own tile → clear all attack targets
     if (tile.owner === myPlayerId) {
-      attackTargets.clear();
-      syncAttackUI(renderer);
+      attackTargetPlayerIds.clear();
+      syncAttackUI(renderer, currentState);
       showStatus('Tüm hedefler iptal edildi.', false);
       return;
     }
@@ -265,19 +421,52 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Add this tile as a new attack target (accumulate up to 8)
-    if (attackTargets.size >= 8) {
-      const first = attackTargets.keys().next().value as number;
-      attackTargets.delete(first);
+    if (!tile.owner) {
+      // Neutral tile — BFS through it needs an intermediate target
+      // For simplicity: try to directly conquer the neutral tile if adjacent
+      const pct = Number(troopSlider.value) / 100;
+      const player = currentState.players[myPlayerId];
+      if (player) {
+        const cost = getConquestCost(tile);
+        if (Math.floor(player.troops * pct) >= cost) {
+          client.sendConquer(tileId, pct);
+        } else {
+          showStatus(`Yetersiz asker. Gerekli: ${cost}`);
+        }
+      }
+      return;
     }
-    attackTargets.set(tileId, tile.type);
-    syncAttackUI(renderer);
+
+    // Click enemy tile — target that player
+    const myPlayer = currentState.players[myPlayerId];
+    if (myPlayer?.alliances.includes(tile.owner)) {
+      showStatus(`${currentState.players[tile.owner]?.name} ile ittifak kurulu — saldıramazsın!`);
+      return;
+    }
+
+    attackTargetPlayerIds.add(tile.owner);
+    syncAttackUI(renderer, currentState);
+    const targetName = currentState.players[tile.owner]?.name ?? tile.owner;
     showStatus(
-      attackTargets.size === 1
-        ? `Hedef: ${tile.type} — Otomatik genişleme başlıyor…`
-        : `${attackTargets.size} hedef aktif. Kendi toprağına tıkla → iptal.`,
+      attackTargetPlayerIds.size === 1
+        ? `Hedef: ${targetName} — Saldırı başlıyor!`
+        : `${attackTargetPlayerIds.size} oyuncu hedefleniyor. Kendi toprağına tıkla → iptal.`,
       false,
     );
+  });
+
+  renderer.setOnTileRightClick((tileId, x, y) => {
+    if (!currentState || !myPlayerId) return;
+    const tile = currentState.tiles[tileId];
+    if (!tile) return;
+
+    if (tile.owner === myPlayerId) {
+      showBuildMenu(tile, x, y, currentState, client);
+    } else if (tile.owner && tile.owner !== myPlayerId) {
+      showEnemyMenu(tile, x, y, currentState, client);
+    } else {
+      hideContextMenu();
+    }
   });
 
   startAutoAttackLoop(client, renderer, () => currentState, () => myPlayerId);
@@ -291,9 +480,7 @@ async function main(): Promise<void> {
     connectStatus.style.display = 'block';
     connectStatus.textContent = 'Sunucuya bağlanılıyor...';
     client.connect(getWsUrl());
-    // After PLAYER_JOIN fires, we'll send the name
     if (name) {
-      // stored so onConnect handler can use it
       (client as unknown as { _pendingName: string })._pendingName = name;
     }
   }
@@ -309,7 +496,6 @@ async function main(): Promise<void> {
     myPlayerId = playerId;
     currentState = state;
 
-    // Send custom name if set
     const pendingName = (client as unknown as { _pendingName?: string })._pendingName;
     if (pendingName) {
       client.sendSetName(pendingName);
@@ -324,7 +510,7 @@ async function main(): Promise<void> {
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(updateTimer, 1000);
 
-    showStatus('Bağlandı! Haritada bir hedefe tıkla — otomatik genişler.', false);
+    showStatus('Bağlandı! Düşman toprağına tıkla → saldır. Sağ tıkla → inşa et.', false);
   });
 
   client.onState((state) => {
@@ -349,8 +535,8 @@ async function main(): Promise<void> {
 
     const me = state.players[myPlayerId];
     if (me?.isEliminated) {
-      attackTargets.clear();
-      syncAttackUI(renderer);
+      attackTargetPlayerIds.clear();
+      syncAttackUI(renderer, state);
       showStatus('Elendi! Tüm toprakların kaybedildi.');
     }
   });
@@ -367,9 +553,13 @@ async function main(): Promise<void> {
     showStatus(msg);
   });
 
+  client.onAllianceProposal((fromId, fromName, fromColor) => {
+    showAllianceNotification(fromId, fromName, fromColor, client);
+  });
+
   client.onDisconnect(() => {
-    attackTargets.clear();
-    syncAttackUI(renderer);
+    attackTargetPlayerIds.clear();
+    if (renderer) syncAttackUI(renderer, null);
     if (timerInterval) clearInterval(timerInterval);
     connectingOverlay.style.display = 'flex';
     connectSpinner.style.display = 'block';

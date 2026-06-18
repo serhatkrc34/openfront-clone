@@ -1,11 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.WATER_TILE_TYPES = void 0;
 exports.getTileIndex = getTileIndex;
 exports.getTileCoords = getTileCoords;
 exports.getAdjacentTileIds = getAdjacentTileIds;
 exports.getConquestCost = getConquestCost;
 exports.canConquer = canConquer;
 exports.generateMap = generateMap;
+exports.WATER_TILE_TYPES = new Set(['ocean', 'lake']);
 const TERRAIN_COST = {
     plains: 1.0,
     highland: 1.5,

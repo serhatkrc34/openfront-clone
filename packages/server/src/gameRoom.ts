@@ -3,9 +3,14 @@ import {
   GameState,
   GameMessage,
   ConquerPayload,
+  BuildPayload,
+  ProposeAlliancePayload,
+  AllianceResponsePayload,
   generateMap,
   tickGame,
   applyConquer,
+  applyBuild,
+  applyAlliance,
   createPlayer,
 } from '@openfront/core';
 import { computeBotAction, addBot } from './botAI';
@@ -14,6 +19,12 @@ const TICK_MS = 100;
 const BOT_TICK_INTERVAL = 3;
 const BOT_COUNT = 20;
 
+interface PendingAlliance {
+  fromId: string;
+  toId: string;
+  expiresAtTick: number;
+}
+
 export class GameRoom {
   private id: string;
   private state: GameState;
@@ -21,6 +32,7 @@ export class GameRoom {
   private tickInterval: ReturnType<typeof setInterval> | null = null;
   private playerCount = 0;
   private botIds: string[] = [];
+  private pendingAlliances: PendingAlliance[] = [];
 
   constructor(id: string, mapWidth: number, mapHeight: number) {
     this.id = id;
@@ -32,13 +44,12 @@ export class GameRoom {
       players: {},
       phase: 'lobby',
       winnerId: null,
+      buildings: {},
     };
   }
 
   start(): void {
-    // Add bot players before starting
     this.initBots();
-
     this.state = { ...this.state, phase: 'playing' };
     this.tickInterval = setInterval(() => this.tick(), TICK_MS);
     console.log(`[Room ${this.id}] Game started — ${BOT_COUNT} bots added`);
@@ -71,7 +82,6 @@ export class GameRoom {
 
   addPlayer(ws: WebSocket): void {
     const playerId = `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    // Player color index starts after bots
     const player = createPlayer(playerId, `Player ${this.playerCount + 1}`, BOT_COUNT + this.playerCount);
     this.playerCount++;
 
@@ -82,7 +92,6 @@ export class GameRoom {
 
     this.clients.set(playerId, ws);
 
-    // Assign a random starting land tile not yet owned
     const landTiles = this.state.tiles.filter(
       t => t.type !== 'ocean' && t.type !== 'lake' && t.owner === null
     );
@@ -131,11 +140,102 @@ export class GameRoom {
       return;
     }
 
+    if (msg.type === 'PROPOSE_ALLIANCE') {
+      const payload = msg.payload as ProposeAlliancePayload;
+      const targetId = payload.targetPlayerId;
+      const target = this.state.players[targetId];
+      const self = this.state.players[playerId];
+
+      if (!target || !self || target.isEliminated) {
+        const ws = this.clients.get(playerId);
+        if (ws) this.sendToClient(ws, { type: 'ERROR', payload: { message: 'Geçersiz hedef oyuncu' } });
+        return;
+      }
+
+      // Bots auto-reject alliances
+      if (this.botIds.includes(targetId)) {
+        const ws = this.clients.get(playerId);
+        if (ws) this.sendToClient(ws, { type: 'ERROR', payload: { message: `${target.name} ittifak teklifini reddetti` } });
+        return;
+      }
+
+      // Already allied
+      if (self.alliances.includes(targetId)) {
+        const ws = this.clients.get(playerId);
+        if (ws) this.sendToClient(ws, { type: 'ERROR', payload: { message: 'Zaten ittifak kuruldı' } });
+        return;
+      }
+
+      // Remove any old pending proposal between these two
+      this.pendingAlliances = this.pendingAlliances.filter(
+        p => !(p.fromId === playerId && p.toId === targetId)
+      );
+
+      this.pendingAlliances.push({
+        fromId: playerId,
+        toId: targetId,
+        expiresAtTick: this.state.tick + 300, // 30 seconds
+      });
+
+      const targetWs = this.clients.get(targetId);
+      if (targetWs) {
+        this.sendToClient(targetWs, {
+          type: 'ALLIANCE_PROPOSAL',
+          payload: { fromPlayerId: playerId, fromName: self.name, fromColor: self.color },
+        });
+      }
+      return;
+    }
+
+    if (msg.type === 'ALLIANCE_RESPONSE') {
+      const payload = msg.payload as AllianceResponsePayload;
+      const fromId = payload.fromPlayerId;
+
+      const pendingIdx = this.pendingAlliances.findIndex(
+        p => p.fromId === fromId && p.toId === playerId
+      );
+
+      if (pendingIdx === -1) {
+        const ws = this.clients.get(playerId);
+        if (ws) this.sendToClient(ws, { type: 'ERROR', payload: { message: 'Aktif ittifak teklifi bulunamadı' } });
+        return;
+      }
+
+      this.pendingAlliances.splice(pendingIdx, 1);
+
+      if (payload.accept) {
+        this.state = applyAlliance(this.state, fromId, playerId);
+        this.broadcast({ type: 'GAME_STATE', payload: this.state });
+      } else {
+        const fromWs = this.clients.get(fromId);
+        const declinerName = this.state.players[playerId]?.name ?? 'Oyuncu';
+        if (fromWs) {
+          this.sendToClient(fromWs, {
+            type: 'ERROR',
+            payload: { message: `${declinerName} ittifak teklifini reddetti` },
+          });
+        }
+      }
+      return;
+    }
+
     if (this.state.phase !== 'playing') return;
 
     if (msg.type === 'CONQUER') {
       const payload = msg.payload as ConquerPayload;
       const result = applyConquer(this.state, playerId, payload);
+      if ('error' in result) {
+        const ws = this.clients.get(playerId);
+        if (ws) this.sendToClient(ws, { type: 'ERROR', payload: { message: result.error } });
+      } else {
+        this.state = result;
+        this.broadcast({ type: 'GAME_STATE', payload: this.state });
+      }
+    }
+
+    if (msg.type === 'BUILD') {
+      const payload = msg.payload as BuildPayload;
+      const result = applyBuild(this.state, playerId, payload);
       if ('error' in result) {
         const ws = this.clients.get(playerId);
         if (ws) this.sendToClient(ws, { type: 'ERROR', payload: { message: result.error } });
@@ -155,7 +255,22 @@ export class GameRoom {
 
     this.state = tickGame(this.state);
 
-    // Full state every 10 ticks (1s at 100ms/tick); player stats every tick
+    // Expire old alliance proposals
+    if (this.pendingAlliances.length > 0) {
+      const expired = this.pendingAlliances.filter(p => p.expiresAtTick <= this.state.tick);
+      this.pendingAlliances = this.pendingAlliances.filter(p => p.expiresAtTick > this.state.tick);
+      for (const p of expired) {
+        const fromWs = this.clients.get(p.fromId);
+        const toName = this.state.players[p.toId]?.name ?? 'Oyuncu';
+        if (fromWs) {
+          this.sendToClient(fromWs, {
+            type: 'ERROR',
+            payload: { message: `${toName} ittifak teklifine yanıt vermedi` },
+          });
+        }
+      }
+    }
+
     if (this.state.tick % 10 === 0) {
       this.broadcast({ type: 'GAME_STATE', payload: this.state });
     } else {

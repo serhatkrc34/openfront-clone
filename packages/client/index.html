@@ -179,7 +179,7 @@
       display: flex;
       align-items: center;
       gap: 5px;
-      max-width: 110px;
+      max-width: 120px;
     }
 
     .lb-dot {
@@ -303,6 +303,148 @@
       z-index: 50;
       backdrop-filter: blur(4px);
     }
+
+    /* ════════════════════════════
+       Right-click context menu
+    ════════════════════════════ */
+    #context-menu {
+      position: fixed;
+      background: rgba(5, 12, 28, 0.96);
+      border: 1px solid rgba(40, 90, 200, 0.4);
+      border-radius: 8px;
+      padding: 8px 0;
+      min-width: 160px;
+      display: none;
+      z-index: 200;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+      pointer-events: all;
+    }
+
+    .cm-title {
+      padding: 4px 14px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #5070a0;
+      border-bottom: 1px solid rgba(40, 90, 200, 0.2);
+      margin-bottom: 4px;
+    }
+
+    .cm-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      padding: 7px 14px;
+      background: none;
+      border: none;
+      color: #c8d8f0;
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      text-align: left;
+      gap: 12px;
+      transition: background 0.1s;
+    }
+
+    .cm-item:hover {
+      background: rgba(68, 136, 255, 0.12);
+    }
+
+    .cm-cost {
+      color: #c8b040;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .cm-disabled {
+      padding: 6px 14px;
+      font-size: 11px;
+      color: #3a5278;
+      cursor: default;
+    }
+
+    /* ════════════════════════════
+       Alliance notification
+    ════════════════════════════ */
+    #alliance-notification {
+      position: absolute;
+      bottom: 140px;
+      right: 14px;
+      background: rgba(5, 12, 28, 0.95);
+      border: 1px solid rgba(68, 204, 128, 0.5);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 12px;
+      color: #c8d8f0;
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 100;
+      pointer-events: all;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 0 16px rgba(68, 204, 128, 0.2);
+      min-width: 220px;
+      animation: slide-in 0.25s ease;
+    }
+
+    @keyframes slide-in {
+      from { opacity: 0; transform: translateX(20px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    .ally-btns {
+      display: flex;
+      gap: 8px;
+    }
+
+    .ally-btn {
+      flex: 1;
+      padding: 6px 0;
+      border: none;
+      border-radius: 5px;
+      font-size: 12px;
+      font-family: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      transition: filter 0.15s;
+    }
+
+    .ally-btn:hover { filter: brightness(1.2); }
+
+    .ally-accept {
+      background: rgba(40, 168, 80, 0.3);
+      border: 1px solid #28a850;
+      color: #66ee88;
+    }
+
+    .ally-decline {
+      background: rgba(200, 40, 40, 0.3);
+      border: 1px solid #c83030;
+      color: #ff7766;
+    }
+
+    /* ════════════════════════════
+       Building legend — bottom right (above minimap)
+    ════════════════════════════ */
+    #building-legend {
+      position: absolute;
+      bottom: 200px;
+      right: 14px;
+      background: rgba(5, 12, 28, 0.75);
+      border: 1px solid rgba(40, 90, 200, 0.2);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 10px;
+      color: #5070a0;
+      pointer-events: none;
+      line-height: 1.8;
+    }
+
+    .bld-row { display: flex; align-items: center; gap: 6px; }
+    .bld-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
     /* ════════════════════════════
        Connecting overlay
@@ -495,6 +637,14 @@
       </table>
     </div>
 
+    <!-- Building legend -->
+    <div id="building-legend">
+      <div class="bld-row"><div class="bld-dot" style="background:#ffcc00"></div> Şehir (500g)</div>
+      <div class="bld-row"><div class="bld-dot" style="background:#00aaff"></div> Liman (300g)</div>
+      <div class="bld-row"><div class="bld-dot" style="background:#ff3333"></div> SAM (800g)</div>
+      <div class="bld-row"><div class="bld-dot" style="background:#aaaaaa"></div> Silo (1200g)</div>
+    </div>
+
     <!-- Conquest controls — bottom center -->
     <div id="conquest-controls" class="panel">
       <div id="conquest-controls-label">⚔ Saldırı Gücü</div>
@@ -512,6 +662,9 @@
 
     <!-- Tile tooltip -->
     <div id="tile-tooltip"></div>
+
+    <!-- Alliance incoming notification -->
+    <div id="alliance-notification"></div>
 
     <!-- Connecting overlay -->
     <div id="connecting-overlay">
@@ -533,6 +686,9 @@
     </div>
 
   </div>
+
+  <!-- Context menu (outside ui-overlay so it's not pointer-events: none) -->
+  <div id="context-menu"></div>
 
   <script type="module" src="/src/main.ts"></script>
 </body>

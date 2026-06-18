@@ -1,5 +1,5 @@
 import { Application, Graphics, Container, Text } from 'pixi.js';
-import { GameState, Tile, TileType, getAdjacentTileIds, canConquer } from '@openfront/core';
+import { GameState, Tile, TileType, Building, getAdjacentTileIds, canConquer } from '@openfront/core';
 
 const TILE_SIZE = 4;
 
@@ -20,6 +20,13 @@ const ELEVATION_BASE: Record<TileType, number> = {
   plains:   45,
   highland: 65,
   mountain: 80,
+};
+
+const BUILDING_COLORS: Record<Building['type'], number> = {
+  city:  0xffcc00,
+  port:  0x00aaff,
+  sam:   0xff3333,
+  silo:  0xaaaaaa,
 };
 
 function hexToRgb(hex: number): { r: number; g: number; b: number } {
@@ -49,9 +56,8 @@ function applyBrightness(color: number, brightness: number): number {
   );
 }
 
-// Subtle per-tile noise so terrain has organic variation
 function tileNoise(id: number): number {
-  return ((id * 7919 + 13337) % 256) / 256; // 0–1
+  return ((id * 7919 + 13337) % 256) / 256;
 }
 
 interface FlashEntry { tileId: number; startTime: number; }
@@ -78,7 +84,7 @@ export class Renderer {
 
   private hoveredTileId: number | null = null;
   private conquerableTiles: Set<number> = new Set();
-  private attackTargetIds: Set<number> = new Set();
+  private attackTargetPlayerIds: Set<string> = new Set();
 
   private state: GameState | null = null;
   private prevOwners: Map<number, string | null> = new Map();
@@ -86,6 +92,7 @@ export class Renderer {
 
   private onTileClickCb: ((tileId: number) => void) | null = null;
   private onTileHoverCb: ((tile: Tile | null) => void) | null = null;
+  private onTileRightClickCb: ((tileId: number, x: number, y: number) => void) | null = null;
 
   private flashEntries: FlashEntry[] = [];
   private animating = false;
@@ -167,7 +174,12 @@ export class Renderer {
       if (tileId !== null) this.onTileClickCb?.(tileId);
     });
 
-    canvas.addEventListener('contextmenu', (e: Event) => e.preventDefault());
+    canvas.addEventListener('contextmenu', (e: MouseEvent) => {
+      e.preventDefault();
+      if (this.hasDragged) return;
+      const tileId = this.screenToTile(e.clientX, e.clientY);
+      if (tileId !== null) this.onTileRightClickCb?.(tileId, e.clientX, e.clientY);
+    });
   }
 
   private screenToTile(screenX: number, screenY: number): number | null {
@@ -292,7 +304,10 @@ export class Renderer {
         this.playerLabels.set(id, label);
       }
 
-      label.text = `${p.name}\n${this.fmtN(p.troops)}`;
+      // Show alliance indicator on label
+      const myId = this.playerId;
+      const isAllied = myId && p.alliances?.includes(myId);
+      label.text = `${p.name}${isAllied ? ' 🤝' : ''}\n${this.fmtN(p.troops)}`;
       label.x = screenX;
       label.y = screenY;
       label.visible = true;
@@ -344,8 +359,15 @@ export class Renderer {
     this.updateLabelPositions();
   }
 
-  setAttackTargetIds(ids: number[]): void { this.attackTargetIds = new Set(ids); this.renderMap(); }
-  clearAttackTargets(): void { this.attackTargetIds.clear(); this.renderMap(); }
+  setAttackTargetPlayerIds(ids: string[]): void {
+    this.attackTargetPlayerIds = new Set(ids);
+    this.renderMap();
+  }
+
+  clearAttackTargets(): void {
+    this.attackTargetPlayerIds.clear();
+    this.renderMap();
+  }
 
   // ── Core tile color logic ─────────────────────────────────────────────────
 
@@ -356,12 +378,9 @@ export class Renderer {
 
     if (tile.owner && players[tile.owner]) {
       const p = players[tile.owner];
-      // Elevation modulates brightness: 0.70–1.18 range
       const elevFactor = 0.70 + (elev / 100) * 0.48;
-      // Subtle per-tile noise: ±4% brightness for organic feel
       const noiseF = 0.96 + noise * 0.08;
       let c = applyBrightness(p.color, elevFactor * noiseF);
-      // Very faint terrain hint (7%) preserves sense of geography
       c = blendColors(c, base, 0.07);
       return c;
     }
@@ -372,9 +391,8 @@ export class Renderer {
       return applyBrightness(base, bright * noiseF);
     }
 
-    // Neutral land: dark and recessed — owned territories pop out
     const bright = (0.50 + (elev / 100) * 0.30) * 0.55;
-    const noiseF = 0.90 + noise * 0.20; // more noise variation for visual texture
+    const noiseF = 0.90 + noise * 0.20;
     return applyBrightness(base, bright * noiseF);
   }
 
@@ -385,9 +403,20 @@ export class Renderer {
     const g = this.mapGfx;
     g.clear();
 
-    const { tiles, players, mapWidth, mapHeight } = this.state;
+    const { tiles, players, mapWidth, mapHeight, buildings } = this.state;
     const ts = TILE_SIZE;
     const now = performance.now();
+    const myId = this.playerId;
+
+    // Build set of all tiles owned by attack target players
+    const attackTargetTiles = new Set<number>();
+    if (this.attackTargetPlayerIds.size > 0) {
+      for (const tile of tiles) {
+        if (tile.owner && this.attackTargetPlayerIds.has(tile.owner)) {
+          attackTargetTiles.add(tile.id);
+        }
+      }
+    }
 
     // ── Pass 1: terrain + territory fills ──
     for (const tile of tiles) {
@@ -414,21 +443,24 @@ export class Renderer {
       if (!p) continue;
       const px = tile.x * ts;
       const py = tile.y * ts;
-      // Bright border between different territory regions
-      const borderColor = blendColors(p.color, 0xffffff, 0.6);
+
+      // Allied tiles get teal border, otherwise bright player color border
+      const isAllied = myId && p.alliances?.includes(myId);
+      const borderColor = isAllied ? 0x44ffcc : blendColors(p.color, 0xffffff, 0.6);
+      const borderWidth = isAllied ? 1.5 : 1.5;
 
       if (tile.x + 1 < mapWidth) {
         const right = tiles[tile.y * mapWidth + (tile.x + 1)];
         if (right && right.owner !== tile.owner) {
           g.moveTo(px + ts, py).lineTo(px + ts, py + ts);
-          g.stroke({ color: borderColor, width: 1.5 });
+          g.stroke({ color: borderColor, width: borderWidth });
         }
       }
       if (tile.y + 1 < mapHeight) {
         const bottom = tiles[(tile.y + 1) * mapWidth + tile.x];
         if (bottom && bottom.owner !== tile.owner) {
           g.moveTo(px, py + ts).lineTo(px + ts, py + ts);
-          g.stroke({ color: borderColor, width: 1.5 });
+          g.stroke({ color: borderColor, width: borderWidth });
         }
       }
     }
@@ -465,19 +497,54 @@ export class Renderer {
       g.stroke({ color: isHov ? 0x44ff66 : 0x33cc55, width: isHov ? 1.5 : 1, alpha: isHov ? 1 : 0.75 });
     }
 
-    // ── Pass 5: attack targets (orange) ──
-    for (const targetId of this.attackTargetIds) {
-      const t = tiles[targetId];
+    // ── Pass 5: attack target territories (orange overlay on enemy tiles) ──
+    for (const tileId of attackTargetTiles) {
+      const t = tiles[tileId];
       if (!t) continue;
       const px = t.x * ts;
       const py = t.y * ts;
       g.rect(px, py, ts, ts);
-      g.fill({ color: 0xff4400, alpha: 0.45 });
-      g.rect(px, py, ts, ts);
-      g.stroke({ color: 0xff7700, width: 1.5 });
+      g.fill({ color: 0xff4400, alpha: 0.35 });
     }
 
-    // ── Pass 6: conquest flash ──
+    // ── Pass 6: attack target border highlight ──
+    for (const tileId of attackTargetTiles) {
+      const tile = tiles[tileId];
+      if (!tile) continue;
+      const px = tile.x * ts;
+      const py = tile.y * ts;
+      // Only draw border on edges that face OUR territory
+      const adjIds = [[tile.x + 1, tile.y], [tile.x - 1, tile.y], [tile.x, tile.y + 1], [tile.x, tile.y - 1]];
+      for (const [nx, ny] of adjIds) {
+        if (nx < 0 || ny < 0 || nx >= mapWidth || ny >= mapHeight) continue;
+        const adj = tiles[ny * mapWidth + nx];
+        if (adj?.owner === myId) {
+          // Draw border on this edge
+          if (nx > tile.x) { g.moveTo(px + ts, py); g.lineTo(px + ts, py + ts); }
+          else if (nx < tile.x) { g.moveTo(px, py); g.lineTo(px, py + ts); }
+          else if (ny > tile.y) { g.moveTo(px, py + ts); g.lineTo(px + ts, py + ts); }
+          else { g.moveTo(px, py); g.lineTo(px + ts, py); }
+          g.stroke({ color: 0xff7700, width: 1.5, alpha: 0.9 });
+        }
+      }
+    }
+
+    // ── Pass 7: buildings ──
+    for (const building of Object.values(buildings)) {
+      const tile = tiles[building.tileId];
+      if (!tile) continue;
+      const cx = tile.x * ts + ts / 2;
+      const cy = tile.y * ts + ts / 2;
+      const r = ts * 0.38;
+      const color = BUILDING_COLORS[building.type];
+
+      g.circle(cx, cy, r);
+      g.fill({ color });
+      g.circle(cx, cy, r);
+      g.stroke({ color: 0xffffff, width: 0.6, alpha: 0.9 });
+    }
+
+    // ── Pass 8: conquest flash ──
     for (const flash of this.flashEntries) {
       const tile = tiles[flash.tileId];
       if (!tile) continue;
@@ -489,7 +556,7 @@ export class Renderer {
 
   private renderMinimap(): void {
     if (!this.state) return;
-    const { tiles, mapWidth, mapHeight, players } = this.state;
+    const { tiles, mapWidth, mapHeight, players, buildings } = this.state;
 
     const mmW = 180;
     const mmH = Math.round(mmW * (mapHeight / mapWidth));
@@ -501,7 +568,6 @@ export class Renderer {
     const g = this.minimapGfx;
     g.clear();
 
-    // Background + border
     g.rect(mx - 2, my - 2, mmW + 4, mmH + 4);
     g.fill({ color: 0x040810 });
     g.rect(mx - 2, my - 2, mmW + 4, mmH + 4);
@@ -523,12 +589,20 @@ export class Renderer {
       g.fill({ color });
     }
 
-    // Attack target dots
-    for (const targetId of this.attackTargetIds) {
-      const at = tiles[targetId];
-      if (at) {
-        g.circle(mx + at.x * tW, my + at.y * tH, Math.max(2, tW * 2));
-        g.fill({ color: 0xff4400 });
+    // Attack target dots on minimap
+    for (const tile of tiles) {
+      if (tile.owner && this.attackTargetPlayerIds.has(tile.owner)) {
+        g.rect(mx + tile.x * tW, my + tile.y * tH, Math.max(1, tW), Math.max(1, tH));
+        g.fill({ color: 0xff4400, alpha: 0.6 });
+      }
+    }
+
+    // Building dots on minimap
+    for (const building of Object.values(buildings)) {
+      const tile = tiles[building.tileId];
+      if (tile) {
+        g.circle(mx + tile.x * tW + tW / 2, my + tile.y * tH + tH / 2, Math.max(1.5, tW));
+        g.fill({ color: BUILDING_COLORS[building.type] });
       }
     }
 
@@ -543,5 +617,6 @@ export class Renderer {
 
   setOnTileClick(cb: (tileId: number) => void): void { this.onTileClickCb = cb; }
   setOnTileHover(cb: (tile: Tile | null) => void): void { this.onTileHoverCb = cb; }
+  setOnTileRightClick(cb: (tileId: number, x: number, y: number) => void): void { this.onTileRightClickCb = cb; }
   clearSelection(): void { this.renderMap(); }
 }

@@ -1,5 +1,6 @@
 export type TileType = 'plains' | 'mountain' | 'highland' | 'ocean' | 'lake';
 export type OwnerId = string | null;
+export type BuildingType = 'city' | 'port' | 'sam' | 'silo';
 
 export interface Tile {
   id: number;
@@ -9,6 +10,12 @@ export interface Tile {
   elevation: number; // 0-100
   owner: OwnerId;
   troops: number;
+}
+
+export interface Building {
+  tileId: number;
+  type: BuildingType;
+  ownerId: string;
 }
 
 export interface Player {
@@ -22,6 +29,7 @@ export interface Player {
   troopRatio: number; // 0-1
   isEliminated: boolean;
   tileCount: number;
+  alliances: string[]; // player IDs allied with
 }
 
 export interface GameState {
@@ -32,6 +40,7 @@ export interface GameState {
   players: Record<string, Player>;
   phase: 'lobby' | 'playing' | 'ended';
   winnerId: OwnerId;
+  buildings: Record<number, Building>; // keyed by tile ID
 }
 
 export type MessageType =
@@ -41,7 +50,11 @@ export type MessageType =
   | 'CONQUER'
   | 'TICK'
   | 'ERROR'
-  | 'SET_NAME';
+  | 'SET_NAME'
+  | 'BUILD'
+  | 'PROPOSE_ALLIANCE'
+  | 'ALLIANCE_PROPOSAL'
+  | 'ALLIANCE_RESPONSE';
 
 export interface GameMessage {
   type: MessageType;
@@ -51,4 +64,18 @@ export interface GameMessage {
 export interface ConquerPayload {
   tileId: number;
   percentage: number; // 0.1 to 1.0
+}
+
+export interface BuildPayload {
+  tileId: number;
+  buildingType: BuildingType;
+}
+
+export interface ProposeAlliancePayload {
+  targetPlayerId: string;
+}
+
+export interface AllianceResponsePayload {
+  fromPlayerId: string;
+  accept: boolean;
 }
