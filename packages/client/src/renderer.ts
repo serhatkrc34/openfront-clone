@@ -1,5 +1,5 @@
-import { Application, Graphics, Container, Text, TextStyle } from 'pixi.js';
-import { GameState, Tile, TileType } from '@openfront/core';
+import { Application, Graphics, Container } from 'pixi.js';
+import { GameState, Tile, TileType, getAdjacentTileIds, canConquer } from '@openfront/core';
 
 const TILE_SIZE = 10;
 
@@ -9,14 +9,6 @@ const TERRAIN_COLORS: Record<TileType, number> = {
   plains: 0x2d6e3a,
   highland: 0x6b7a3a,
   mountain: 0x5a5055,
-};
-
-const TERRAIN_BORDER: Record<TileType, number> = {
-  ocean: 0x0a1828,
-  lake: 0x163d66,
-  plains: 0x255830,
-  highland: 0x5a6830,
-  mountain: 0x4a4048,
 };
 
 function hexToRgb(hex: number): { r: number; g: number; b: number } {
@@ -40,14 +32,18 @@ export class Renderer {
 
   private cameraX = 0;
   private cameraY = 0;
-  private zoom = 1;
+  private zoom = 2;
 
   private isDragging = false;
+  private hasDragged = false;
   private dragStart = { x: 0, y: 0 };
   private dragCamStart = { x: 0, y: 0 };
 
   private hoveredTileId: number | null = null;
   private selectedTileId: number | null = null;
+
+  // Tiles the current player can conquer right now
+  private conquerableTiles: Set<number> = new Set();
 
   private state: GameState | null = null;
   private playerId: string | null = null;
@@ -63,7 +59,6 @@ export class Renderer {
     this.mapGfx = new Graphics();
     this.mapContainer.addChild(this.mapGfx);
 
-    // Minimap overlay (fixed position, drawn separately)
     this.minimapGfx = new Graphics();
     this.minimapGfx.zIndex = 10;
     this.app.stage.addChild(this.minimapGfx);
@@ -77,9 +72,8 @@ export class Renderer {
 
     canvas.addEventListener('wheel', (e: WheelEvent) => {
       e.preventDefault();
-      const factor = e.deltaY < 0 ? 1.1 : 0.9;
-      const newZoom = Math.min(3, Math.max(0.3, this.zoom * factor));
-      // Zoom toward mouse position
+      const factor = e.deltaY < 0 ? 1.12 : 0.9;
+      const newZoom = Math.min(5, Math.max(0.3, this.zoom * factor));
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
@@ -87,24 +81,30 @@ export class Renderer {
       this.cameraY = my - (my - this.cameraY) * (newZoom / this.zoom);
       this.zoom = newZoom;
       this.applyCamera();
+      this.renderMinimap();
     }, { passive: false });
 
     canvas.addEventListener('mousedown', (e: MouseEvent) => {
-      if (e.button === 1 || e.button === 2) {
-        this.isDragging = true;
-        this.dragStart = { x: e.clientX, y: e.clientY };
-        this.dragCamStart = { x: this.cameraX, y: this.cameraY };
-        e.preventDefault();
-      }
+      // Any button starts potential drag
+      this.isDragging = true;
+      this.hasDragged = false;
+      this.dragStart = { x: e.clientX, y: e.clientY };
+      this.dragCamStart = { x: this.cameraX, y: this.cameraY };
+      if (e.button === 1 || e.button === 2) e.preventDefault();
     });
 
     canvas.addEventListener('mousemove', (e: MouseEvent) => {
       if (this.isDragging) {
-        this.cameraX = this.dragCamStart.x + (e.clientX - this.dragStart.x);
-        this.cameraY = this.dragCamStart.y + (e.clientY - this.dragStart.y);
-        this.applyCamera();
+        const dx = e.clientX - this.dragStart.x;
+        const dy = e.clientY - this.dragStart.y;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+          this.hasDragged = true;
+          this.cameraX = this.dragCamStart.x + dx;
+          this.cameraY = this.dragCamStart.y + dy;
+          this.applyCamera();
+          this.renderMinimap();
+        }
       }
-      // Update hover
       const tileId = this.screenToTile(e.clientX, e.clientY);
       if (tileId !== this.hoveredTileId) {
         this.hoveredTileId = tileId;
@@ -114,13 +114,13 @@ export class Renderer {
       }
     });
 
-    canvas.addEventListener('mouseup', (e: MouseEvent) => {
-      if (e.button === 1 || e.button === 2) {
-        this.isDragging = false;
-      }
+    canvas.addEventListener('mouseup', () => {
+      this.isDragging = false;
     });
 
     canvas.addEventListener('click', (e: MouseEvent) => {
+      // Suppress click if it was actually a drag
+      if (this.hasDragged) { this.hasDragged = false; return; }
       const tileId = this.screenToTile(e.clientX, e.clientY);
       if (tileId !== null) {
         this.selectedTileId = tileId;
@@ -149,12 +149,28 @@ export class Renderer {
     this.mapContainer.scale.set(this.zoom);
   }
 
+  // Recompute which tiles the current player can conquer
+  private updateConquerableTiles(): void {
+    this.conquerableTiles.clear();
+    if (!this.state || !this.playerId) return;
+    const { tiles, mapWidth, mapHeight } = this.state;
+    for (const tile of tiles) {
+      if (tile.owner !== this.playerId) continue;
+      for (const adjId of getAdjacentTileIds(tile.id, mapWidth, mapHeight)) {
+        const adj = tiles[adjId];
+        if (adj && canConquer(adj) && adj.owner !== this.playerId) {
+          this.conquerableTiles.add(adjId);
+        }
+      }
+    }
+  }
+
   setState(state: GameState, playerId: string): void {
     const isFirstRender = !this.state;
     this.state = state;
     this.playerId = playerId;
+
     if (isFirstRender) {
-      // Center camera on player's territory
       const playerTile = state.tiles.find(t => t.owner === playerId);
       if (playerTile) {
         const sw = this.app.screen.width;
@@ -164,12 +180,15 @@ export class Renderer {
         this.applyCamera();
       }
     }
+
+    this.updateConquerableTiles();
     this.renderMap();
     this.renderMinimap();
   }
 
   updateState(state: GameState): void {
     this.state = state;
+    this.updateConquerableTiles();
     this.renderMap();
     this.renderMinimap();
   }
@@ -179,56 +198,71 @@ export class Renderer {
     const g = this.mapGfx;
     g.clear();
 
-    const { tiles, mapWidth, players } = this.state;
+    const { tiles, players } = this.state;
 
+    // Pass 1: tile fills
     for (const tile of tiles) {
       const px = tile.x * TILE_SIZE;
       const py = tile.y * TILE_SIZE;
       const isHovered = tile.id === this.hoveredTileId;
-      const isSelected = tile.id === this.selectedTileId;
 
       let fillColor = TERRAIN_COLORS[tile.type];
 
       if (tile.owner) {
         const player = players[tile.owner];
-        if (player) {
-          fillColor = blendColors(TERRAIN_COLORS[tile.type], player.color, 0.55);
-        }
+        if (player) fillColor = blendColors(TERRAIN_COLORS[tile.type], player.color, 0.58);
       }
 
-      if (isHovered && tile.type !== 'ocean' && tile.type !== 'lake') {
-        fillColor = blendColors(fillColor, 0xffffff, 0.25);
+      if (isHovered && canConquer(tile)) {
+        fillColor = blendColors(fillColor, 0xffffff, 0.22);
       }
 
-      // Draw tile fill
       g.rect(px, py, TILE_SIZE - 1, TILE_SIZE - 1).fill({ color: fillColor });
+    }
 
-      // Borders for owned tiles
-      if (tile.owner) {
-        const player = players[tile.owner];
-        if (player) {
-          if (isSelected && tile.owner === this.playerId) {
-            g.rect(px, py, TILE_SIZE - 1, TILE_SIZE - 1).stroke({ color: 0xffffff, width: 1.5 });
-          } else if (tile.owner === this.playerId) {
-            g.rect(px, py, TILE_SIZE - 1, TILE_SIZE - 1).stroke({ color: player.color, width: 0.5 });
-          }
-        }
-      }
+    // Pass 2: conquerable tile highlights (bright pulsing border)
+    for (const tileId of this.conquerableTiles) {
+      const tile = tiles[tileId];
+      if (!tile) continue;
+      const px = tile.x * TILE_SIZE;
+      const py = tile.y * TILE_SIZE;
+      const isHov = tile.id === this.hoveredTileId;
+      const isSel = tile.id === this.selectedTileId;
 
-      // Highlight adjacent conquerables when a tile is selected
-      if (this.selectedTileId !== null && this.playerId && this.state) {
-        const selTile = this.state.tiles[this.selectedTileId];
-        if (selTile?.owner === this.playerId) {
-          // highlight is handled via hover only — skip expensive adjacent calc here
-        }
+      if (isSel) {
+        // Selected conquerable tile — bright gold fill tint
+        const fillColor = blendColors(TERRAIN_COLORS[tile.type], 0xffd700, 0.35);
+        g.rect(px, py, TILE_SIZE - 1, TILE_SIZE - 1).fill({ color: fillColor });
+        g.rect(px, py, TILE_SIZE - 1, TILE_SIZE - 1).stroke({ color: 0xffd700, width: 2 });
+      } else if (isHov) {
+        // Hovered conquerable — bright green tint
+        const fillColor = blendColors(TERRAIN_COLORS[tile.type], 0x00ff88, 0.45);
+        g.rect(px, py, TILE_SIZE - 1, TILE_SIZE - 1).fill({ color: fillColor });
+        g.rect(px, py, TILE_SIZE - 1, TILE_SIZE - 1).stroke({ color: 0x00ff88, width: 1.5 });
+      } else {
+        // Normal conquerable border — subtle green outline
+        g.rect(px, py, TILE_SIZE - 1, TILE_SIZE - 1).stroke({ color: 0x44ee66, width: 1 });
       }
     }
 
-    // Draw selected tile ring last
-    if (this.selectedTileId !== null && this.state.tiles[this.selectedTileId]) {
-      const t = this.state.tiles[this.selectedTileId];
-      g.rect(t.x * TILE_SIZE, t.y * TILE_SIZE, TILE_SIZE - 1, TILE_SIZE - 1)
-        .stroke({ color: 0xffd700, width: 2 });
+    // Pass 3: owned tile borders (subtle)
+    for (const tile of tiles) {
+      if (!tile.owner || tile.owner !== this.playerId) continue;
+      const px = tile.x * TILE_SIZE;
+      const py = tile.y * TILE_SIZE;
+      const player = players[tile.owner];
+      if (player) {
+        g.rect(px, py, TILE_SIZE - 1, TILE_SIZE - 1).stroke({ color: player.color, width: 0.5 });
+      }
+    }
+
+    // Pass 4: selected own tile
+    if (this.selectedTileId !== null) {
+      const t = tiles[this.selectedTileId];
+      if (t && t.owner === this.playerId) {
+        g.rect(t.x * TILE_SIZE, t.y * TILE_SIZE, TILE_SIZE - 1, TILE_SIZE - 1)
+          .stroke({ color: 0xffffff, width: 1.5 });
+      }
     }
   }
 
@@ -246,7 +280,6 @@ export class Renderer {
     const g = this.minimapGfx;
     g.clear();
 
-    // Background
     g.rect(px2 - 1, py2 - 1, mmW + 2, mmH + 2).fill({ color: 0x050a12 });
 
     for (const tile of tiles) {
@@ -259,7 +292,7 @@ export class Renderer {
         .fill({ color });
     }
 
-    // Viewport indicator
+    // Viewport rect
     const vx = (-this.cameraX / this.zoom / TILE_SIZE) * tileW;
     const vy = (-this.cameraY / this.zoom / TILE_SIZE) * tileH;
     const vw = (this.app.screen.width / this.zoom / TILE_SIZE) * tileW;

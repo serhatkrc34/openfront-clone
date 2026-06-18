@@ -102,29 +102,20 @@
       white-space: nowrap;
     }
     #troop-slider {
-      width: 140px;
-      accent-color: #4a9eff;
+      width: 160px;
+      accent-color: #44ee66;
     }
     #troop-pct-label {
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 700;
-      color: #4a9eff;
-      min-width: 36px;
+      color: #44ee66;
+      min-width: 40px;
     }
-    #conquer-btn {
-      padding: 6px 18px;
-      background: #2a5fc8;
-      color: #fff;
-      border: none;
-      border-radius: 5px;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      letter-spacing: 0.03em;
-      transition: background 0.15s;
+    .hint-text {
+      font-size: 11px;
+      color: #556070;
+      white-space: nowrap;
     }
-    #conquer-btn:hover { background: #3a6fd8; }
-    #conquer-btn:disabled { background: #333; cursor: not-allowed; color: #666; }
 
     /* Status messages */
     #status-msg {
@@ -228,10 +219,10 @@
 
     <!-- Conquest controls -->
     <div id="conquest-controls" class="panel">
-      <label>Troops:</label>
+      <label>Asker oranı:</label>
       <input type="range" id="troop-slider" min="10" max="100" step="5" value="50" />
       <span id="troop-pct-label">50%</span>
-      <button id="conquer-btn" disabled>Conquer</button>
+      <span class="hint-text">Yeşil tile'a tıkla → fethet</span>
     </div>
 
     <!-- Status message -->

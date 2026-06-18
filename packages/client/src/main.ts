@@ -17,7 +17,6 @@ const statTiles = document.getElementById('stat-tiles')!;
 const lbList = document.getElementById('lb-list')!;
 const troopSlider = document.getElementById('troop-slider') as HTMLInputElement;
 const troopPctLabel = document.getElementById('troop-pct-label')!;
-const conquerBtn = document.getElementById('conquer-btn') as HTMLButtonElement;
 const statusMsg = document.getElementById('status-msg')!;
 const tileTooltip = document.getElementById('tile-tooltip')!;
 
@@ -120,15 +119,14 @@ async function main(): Promise<void> {
     const tile = currentState.tiles[tileId];
     if (!tile) return;
 
+    // Clicked own tile
     if (tile.owner === myPlayerId) {
-      // Selecting own tile — just highlight
-      showStatus(`Selected your tile (${tile.type})`, false);
-      conquerBtn.disabled = true;
+      showStatus('Kendi toprağın. Yeşil kenarlı tile\'lara tıkla.', false);
       return;
     }
 
     if (!canConquer(tile)) {
-      showStatus('Cannot conquer water tiles');
+      showStatus('Su tile\'ları fethedilemez.');
       return;
     }
 
@@ -136,7 +134,7 @@ async function main(): Promise<void> {
     const adjacent = getAdjacentTileIds(tileId, currentState.mapWidth, currentState.mapHeight);
     const ownsAdjacent = adjacent.some(id => currentState!.tiles[id]?.owner === myPlayerId);
     if (!ownsAdjacent) {
-      showStatus('Must conquer territory adjacent to yours');
+      showStatus('Yalnızca kendi sınırına bitişik (yeşil kenarlı) tile\'ları fethedebilirsin.');
       return;
     }
 
@@ -146,19 +144,14 @@ async function main(): Promise<void> {
     const available = Math.floor(player.troops * pct);
 
     if (available < cost) {
-      showStatus(`Need ${cost} troops, you have ${available} (${troopSlider.value}% of ${fmt(player.troops)})`);
+      showStatus(`Yeterli asker yok! Gerekli: ${cost}, mevcut: ${fmt(available)} (%${troopSlider.value}). Kaydırıcıyı artır veya bekle.`);
       return;
     }
 
-    // Enable conquer button
-    conquerBtn.disabled = false;
-    conquerBtn.onclick = () => {
-      client.sendConquer(tileId, pct);
-      conquerBtn.disabled = true;
-      renderer.clearSelection();
-    };
-
-    showStatus(`Conquer ${tile.type} for ${cost} troops? Click Conquer.`, false);
+    // Single-click conquest — send immediately
+    client.sendConquer(tileId, pct);
+    showStatus(`+${tile.type} fethedildi! (${cost} asker)`, false);
+    renderer.clearSelection();
   });
 
   client.onConnect((playerId, state) => {
@@ -193,8 +186,7 @@ async function main(): Promise<void> {
     // Check self elimination
     const me = state.players[myPlayerId];
     if (me?.isEliminated) {
-      showStatus('You have been eliminated!');
-      conquerBtn.disabled = true;
+      showStatus('Elendi! Tüm toprakların kaybedildi.');
     }
   });
 

@@ -8,8 +8,11 @@ import {
   applyConquer,
   createPlayer,
 } from '@openfront/core';
+import { computeBotAction, addBot } from './botAI';
 
 const TICK_MS = 200;
+const BOT_TICK_INTERVAL = 8; // bots act every 8 ticks (~1.6s)
+const BOT_COUNT = 5;
 
 export class GameRoom {
   private id: string;
@@ -17,6 +20,7 @@ export class GameRoom {
   private clients: Map<string, WebSocket> = new Map();
   private tickInterval: ReturnType<typeof setInterval> | null = null;
   private playerCount = 0;
+  private botIds: string[] = [];
 
   constructor(id: string, mapWidth: number, mapHeight: number) {
     this.id = id;
@@ -32,14 +36,39 @@ export class GameRoom {
   }
 
   start(): void {
+    // Add bot players before starting
+    this.initBots();
+
     this.state = { ...this.state, phase: 'playing' };
     this.tickInterval = setInterval(() => this.tick(), TICK_MS);
-    console.log(`[Room ${this.id}] Game started with map ${this.state.mapWidth}x${this.state.mapHeight}`);
+    console.log(`[Room ${this.id}] Game started — ${BOT_COUNT} bots added`);
+  }
+
+  private initBots(): void {
+    const botNames = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'];
+    for (let i = 0; i < BOT_COUNT; i++) {
+      const botId = `bot_${i}`;
+      const colorIndex = i + 1; // offset from player colors
+      this.state = addBot(this.state, botId, `Bot ${botNames[i]}`, colorIndex);
+      this.botIds.push(botId);
+    }
+  }
+
+  private tickBots(): void {
+    for (const botId of this.botIds) {
+      const action = computeBotAction(this.state, botId);
+      if (!action) continue;
+      const result = applyConquer(this.state, botId, action);
+      if (!('error' in result)) {
+        this.state = result;
+      }
+    }
   }
 
   addPlayer(ws: WebSocket): void {
     const playerId = `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    const player = createPlayer(playerId, `Player ${this.playerCount + 1}`, this.playerCount);
+    // Player color index starts after bots
+    const player = createPlayer(playerId, `Player ${this.playerCount + 1}`, BOT_COUNT + this.playerCount);
     this.playerCount++;
 
     this.state = {
@@ -49,7 +78,7 @@ export class GameRoom {
 
     this.clients.set(playerId, ws);
 
-    // Assign a random starting land tile
+    // Assign a random starting land tile not yet owned
     const landTiles = this.state.tiles.filter(
       t => t.type !== 'ocean' && t.type !== 'lake' && t.owner === null
     );
@@ -61,7 +90,7 @@ export class GameRoom {
       this.state = { ...this.state, tiles: newTiles };
     }
 
-    console.log(`[Room ${this.id}] Player joined: ${playerId}`);
+    console.log(`[Room ${this.id}] Human player joined: ${playerId}`);
     this.sendToClient(ws, { type: 'PLAYER_JOIN', payload: { playerId, state: this.state } });
     this.broadcastExcept(playerId, { type: 'GAME_STATE', payload: this.state });
 
@@ -70,7 +99,7 @@ export class GameRoom {
         const msg: GameMessage = JSON.parse(data.toString());
         this.handleMessage(playerId, msg);
       } catch {
-        // ignore malformed messages
+        // ignore malformed
       }
     });
 
@@ -104,9 +133,14 @@ export class GameRoom {
 
   private tick(): void {
     if (this.state.phase !== 'playing') return;
+
+    // Run bot logic every N ticks
+    if (this.state.tick % BOT_TICK_INTERVAL === 0) {
+      this.tickBots();
+    }
+
     this.state = tickGame(this.state);
 
-    // On every 5th tick send full state, otherwise just player data
     if (this.state.tick % 5 === 0) {
       this.broadcast({ type: 'GAME_STATE', payload: this.state });
     } else {
@@ -121,9 +155,7 @@ export class GameRoom {
   }
 
   private sendToClient(ws: WebSocket, msg: GameMessage): void {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(msg));
-    }
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   }
 
   private broadcast(msg: GameMessage): void {
