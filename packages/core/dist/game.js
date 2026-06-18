@@ -6,16 +6,16 @@ exports.tickGame = tickGame;
 exports.applyConquer = applyConquer;
 const map_1 = require("./map");
 exports.PLAYER_COLORS = [
-    0xe05c6e, // soft red
-    0x5c8ee0, // soft blue
-    0x5cc87a, // soft green
-    0xe09a5c, // soft orange
-    0x9a5ce0, // soft purple
-    0x3db8c8, // soft cyan
-    0xd45ca0, // soft pink
-    0xc8b830, // soft yellow
-    0x3cbfa8, // soft mint
-    0xd4724a, // soft coral
+    0xd03050, // deep rose
+    0x2858d0, // royal blue
+    0x28a850, // emerald
+    0xd07828, // amber
+    0x7828d0, // violet
+    0x1898b8, // sky teal
+    0xb82090, // magenta
+    0xa88818, // gold
+    0x1898a0, // seafoam
+    0xc84828, // burnt orange
 ];
 const POPULATION_GROWTH_RATE = 0.0015;
 const GOLD_PER_WORKER_TICK = 0.08;
