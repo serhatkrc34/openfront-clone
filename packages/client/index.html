@@ -117,6 +117,27 @@
       white-space: nowrap;
     }
 
+    /* Attack indicator — bottom left */
+    #attack-indicator {
+      position: absolute;
+      bottom: 20px;
+      left: 12px;
+      background: rgba(255, 80, 0, 0.15);
+      border: 1px solid #ff6600;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      color: #ff9944;
+      font-weight: 600;
+      display: none;
+      animation: pulse-border 1.2s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes pulse-border {
+      0%, 100% { border-color: #ff6600; box-shadow: 0 0 4px #ff6600; }
+      50%       { border-color: #ffaa44; box-shadow: 0 0 10px #ff9900; }
+    }
+
     /* Status messages */
     #status-msg {
       position: absolute;
@@ -222,8 +243,11 @@
       <label>Asker oranı:</label>
       <input type="range" id="troop-slider" min="10" max="100" step="5" value="50" />
       <span id="troop-pct-label">50%</span>
-      <span class="hint-text">Yeşil tile'a tıkla → fethet</span>
+      <span class="hint-text">Haritada hedefe tıkla → otomatik genişler</span>
     </div>
+
+    <!-- Attack indicator -->
+    <div id="attack-indicator"></div>
 
     <!-- Status message -->
     <div id="status-msg"></div>
