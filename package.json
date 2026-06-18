@@ -1,0 +1,15 @@
+{
+  "name": "openfront-clone",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "npm run dev --workspace=packages/server",
+    "dev:client": "npm run dev --workspace=packages/client",
+    "build": "npm run build --workspace=packages/core && npm run build --workspace=packages/server && npm run build --workspace=packages/client",
+    "start": "npm run start --workspace=packages/server"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

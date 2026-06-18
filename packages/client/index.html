@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Openfront Clone</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0f;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+    }
+    #game-canvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+    }
+    #ui-overlay {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+    .panel {
+      background: rgba(10, 10, 20, 0.82);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      padding: 10px 14px;
+      backdrop-filter: blur(4px);
+    }
+    /* Player HUD — top left */
+    #player-hud {
+      position: absolute;
+      top: 12px; left: 12px;
+      min-width: 200px;
+      pointer-events: none;
+    }
+    #player-hud h3 {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: #fff;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 4px;
+      color: #b0b8c8;
+    }
+    .stat-row span:last-child { color: #e0e8ff; font-weight: 600; }
+
+    /* Leaderboard — top right */
+    #leaderboard {
+      position: absolute;
+      top: 12px; right: 12px;
+      min-width: 180px;
+      pointer-events: none;
+    }
+    #leaderboard h3 {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      color: #fff;
+    }
+    .lb-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      margin-bottom: 5px;
+    }
+    .lb-color {
+      width: 10px; height: 10px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .lb-name { flex: 1; color: #c0c8d8; }
+    .lb-tiles { color: #e0e8ff; font-weight: 600; }
+
+    /* Conquest controls — bottom center */
+    #conquest-controls {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      pointer-events: all;
+    }
+    #conquest-controls label {
+      font-size: 12px;
+      color: #90a0b8;
+      white-space: nowrap;
+    }
+    #troop-slider {
+      width: 140px;
+      accent-color: #4a9eff;
+    }
+    #troop-pct-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: #4a9eff;
+      min-width: 36px;
+    }
+    #conquer-btn {
+      padding: 6px 18px;
+      background: #2a5fc8;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.03em;
+      transition: background 0.15s;
+    }
+    #conquer-btn:hover { background: #3a6fd8; }
+    #conquer-btn:disabled { background: #333; cursor: not-allowed; color: #666; }
+
+    /* Status messages */
+    #status-msg {
+      position: absolute;
+      bottom: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 13px;
+      color: #ff8855;
+      background: rgba(0,0,0,0.7);
+      padding: 4px 12px;
+      border-radius: 4px;
+      display: none;
+      pointer-events: none;
+    }
+
+    /* Connection overlay */
+    #connecting-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 16px;
+      z-index: 100;
+    }
+    #connecting-overlay h2 { font-size: 22px; color: #fff; }
+    #connecting-overlay p { font-size: 14px; color: #90a0b8; }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid #333;
+      border-top-color: #4a9eff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Game over overlay */
+    #gameover-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 14px;
+      z-index: 100;
+    }
+    #gameover-overlay h2 { font-size: 28px; color: #ffe066; }
+    #gameover-overlay p { font-size: 16px; color: #c0c8d8; }
+    #gameover-overlay button {
+      padding: 10px 28px;
+      background: #2a5fc8;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 15px;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    #gameover-overlay button:hover { background: #3a6fd8; }
+
+    /* Tile info tooltip */
+    #tile-tooltip {
+      position: absolute;
+      background: rgba(10,10,20,0.9);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 11px;
+      color: #c0d0e8;
+      pointer-events: none;
+      display: none;
+      line-height: 1.6;
+      z-index: 50;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-canvas"></div>
+
+  <div id="ui-overlay">
+    <!-- Player HUD -->
+    <div id="player-hud" class="panel">
+      <h3 id="player-name">Connecting...</h3>
+      <div class="stat-row"><span>Troops</span><span id="stat-troops">0</span></div>
+      <div class="stat-row"><span>Workers</span><span id="stat-workers">0</span></div>
+      <div class="stat-row"><span>Population</span><span id="stat-pop">0</span></div>
+      <div class="stat-row"><span>Gold</span><span id="stat-gold">0</span></div>
+      <div class="stat-row"><span>Territory</span><span id="stat-tiles">0 tiles</span></div>
+    </div>
+
+    <!-- Leaderboard -->
+    <div id="leaderboard" class="panel">
+      <h3>Rankings</h3>
+      <div id="lb-list"></div>
+    </div>
+
+    <!-- Conquest controls -->
+    <div id="conquest-controls" class="panel">
+      <label>Troops:</label>
+      <input type="range" id="troop-slider" min="10" max="100" step="5" value="50" />
+      <span id="troop-pct-label">50%</span>
+      <button id="conquer-btn" disabled>Conquer</button>
+    </div>
+
+    <!-- Status message -->
+    <div id="status-msg"></div>
+
+    <!-- Tile tooltip -->
+    <div id="tile-tooltip"></div>
+
+    <!-- Connecting overlay -->
+    <div id="connecting-overlay">
+      <div class="spinner"></div>
+      <h2>Openfront Clone</h2>
+      <p>Connecting to server...</p>
+    </div>
+
+    <!-- Game over overlay -->
+    <div id="gameover-overlay">
+      <h2 id="gameover-title">Game Over</h2>
+      <p id="gameover-msg"></p>
+      <button onclick="location.reload()">Play Again</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
