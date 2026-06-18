@@ -36,8 +36,8 @@ function getConquestCost(tile) {
     const baseCost = TERRAIN_COST[tile.type];
     if (!isFinite(baseCost))
         return Infinity;
-    const elevationMultiplier = 1 + (tile.elevation / 100) * 1.5;
-    return Math.floor(baseCost * elevationMultiplier * 100);
+    const elevationMultiplier = 1 + (tile.elevation / 100) * 1.0;
+    return Math.floor(baseCost * elevationMultiplier * 20);
 }
 function canConquer(tile) {
     return tile.type !== 'ocean' && tile.type !== 'lake';

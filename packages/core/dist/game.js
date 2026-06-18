@@ -17,17 +17,16 @@ exports.PLAYER_COLORS = [
     0x1898a0, // seafoam
     0xc84828, // burnt orange
 ];
-const POPULATION_GROWTH_RATE = 0.0015;
-const GOLD_PER_WORKER_TICK = 0.08;
+const GOLD_PER_WORKER_TICK = 0.15;
 const VICTORY_THRESHOLD = 0.8;
 function createPlayer(id, name, colorIndex) {
     return {
         id,
         name,
         color: exports.PLAYER_COLORS[colorIndex % exports.PLAYER_COLORS.length],
-        population: 1000,
-        troops: 500,
-        workers: 500,
+        population: 3000,
+        troops: 1500,
+        workers: 1500,
         gold: 500,
         troopRatio: 0.5,
         isEliminated: false,
@@ -59,10 +58,12 @@ function tickGame(state) {
             newPlayers[playerId] = player;
             continue;
         }
-        // Logistic population growth
-        const capacity = ownedTiles * 250 + 500;
-        const growthFactor = POPULATION_GROWTH_RATE * (1 - player.population / capacity);
-        player.population = Math.max(100, player.population + player.population * growthFactor);
+        // Real Openfront-style growth: power-law formula with soft cap
+        // toAdd = (baseGrowth + troops^0.70 / 5) * (1 - troops / capacity)
+        const capacity = ownedTiles * 2000 + 4000;
+        const baseGrowth = 8;
+        const growthPerTick = (baseGrowth + Math.pow(player.troops, 0.70) / 5) * Math.max(0, 1 - player.population / capacity);
+        player.population = Math.max(200, Math.floor(player.population + growthPerTick * 2));
         player.troops = Math.floor(player.population * player.troopRatio);
         player.workers = Math.floor(player.population * (1 - player.troopRatio));
         player.gold += player.workers * GOLD_PER_WORKER_TICK;
