@@ -1,4 +1,4 @@
-import { Application, Graphics, Container } from 'pixi.js';
+import { Application, Graphics, Container, Text } from 'pixi.js';
 import { GameState, Tile, TileType, getAdjacentTileIds, canConquer } from '@openfront/core';
 
 const TILE_SIZE = 4; // Very small tiles → map appears large
@@ -96,6 +96,11 @@ export class Renderer {
   private onTileClickCb: ((tileId: number) => void) | null = null;
   private onTileHoverCb: ((tile: Tile | null) => void) | null = null;
 
+  // Territory text labels
+  private labelsContainer: Container;
+  private playerLabels: Map<string, Text> = new Map();
+  private playerCentroids: Map<string, { cx: number; cy: number }> = new Map();
+
   // Conquest flash entries
   private flashEntries: FlashEntry[] = [];
   private animating = false;
@@ -107,6 +112,10 @@ export class Renderer {
 
     this.mapGfx = new Graphics();
     this.mapContainer.addChild(this.mapGfx);
+
+    this.labelsContainer = new Container();
+    this.labelsContainer.zIndex = 5;
+    this.app.stage.addChild(this.labelsContainer);
 
     this.minimapGfx = new Graphics();
     this.minimapGfx.zIndex = 10;
@@ -130,6 +139,7 @@ export class Renderer {
       this.cameraY = my - (my - this.cameraY) * (newZoom / this.zoom);
       this.zoom = newZoom;
       this.applyCamera();
+      this.updateLabelPositions();
       this.renderMinimap();
     }, { passive: false });
 
@@ -150,6 +160,7 @@ export class Renderer {
           this.cameraX = this.dragCamStart.x + dx;
           this.cameraY = this.dragCamStart.y + dy;
           this.applyCamera();
+          this.updateLabelPositions();
           this.renderMinimap();
         }
       }
@@ -240,6 +251,74 @@ export class Renderer {
     requestAnimationFrame(tick);
   }
 
+  private fmtN(n: number): string {
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+    if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+    return Math.floor(n).toString();
+  }
+
+  private computeCentroids(): void {
+    this.playerCentroids.clear();
+    if (!this.state) return;
+    const sums = new Map<string, { sx: number; sy: number; count: number }>();
+    for (const tile of this.state.tiles) {
+      if (!tile.owner) continue;
+      const e = sums.get(tile.owner) ?? { sx: 0, sy: 0, count: 0 };
+      e.sx += tile.x + 0.5;
+      e.sy += tile.y + 0.5;
+      e.count++;
+      sums.set(tile.owner, e);
+    }
+    for (const [id, s] of sums) {
+      this.playerCentroids.set(id, { cx: s.sx / s.count, cy: s.sy / s.count });
+    }
+  }
+
+  private updateLabelPositions(): void {
+    if (!this.state) return;
+    const { players } = this.state;
+    const seenIds = new Set<string>();
+
+    for (const [id, p] of Object.entries(players)) {
+      if (p.isEliminated) continue;
+      const centroid = this.playerCentroids.get(id);
+      if (!centroid || p.tileCount < 3) continue;
+      seenIds.add(id);
+
+      const screenX = centroid.cx * TILE_SIZE * this.zoom + this.cameraX;
+      const screenY = centroid.cy * TILE_SIZE * this.zoom + this.cameraY;
+
+      let label = this.playerLabels.get(id);
+      if (!label) {
+        const colorHex = '#' + p.color.toString(16).padStart(6, '0');
+        label = new Text({
+          text: '',
+          style: {
+            fontFamily: 'Segoe UI, system-ui, sans-serif',
+            fontSize: 11,
+            fontWeight: '700',
+            fill: colorHex,
+            stroke: { color: '#000000', width: 3 },
+            align: 'center',
+            lineHeight: 15,
+          },
+        });
+        label.anchor.set(0.5, 0.5);
+        this.labelsContainer.addChild(label);
+        this.playerLabels.set(id, label);
+      }
+
+      label.text = `${p.name}\n${this.fmtN(p.troops)}`;
+      label.x = screenX;
+      label.y = screenY;
+      label.visible = true;
+    }
+
+    for (const [id, label] of this.playerLabels.entries()) {
+      if (!seenIds.has(id)) label.visible = false;
+    }
+  }
+
   setState(state: GameState, playerId: string): void {
     const isFirst = !this.state;
     this.state = state;
@@ -257,7 +336,9 @@ export class Renderer {
     }
 
     this.updateConquerableTiles();
+    this.computeCentroids();
     this.renderMap();
+    this.updateLabelPositions();
     this.renderMinimap();
   }
 
@@ -266,11 +347,19 @@ export class Renderer {
     this.state = state;
     this.recordOwners(state);
     this.updateConquerableTiles();
+    this.computeCentroids();
     this.renderMap();
+    this.updateLabelPositions();
     this.renderMinimap();
     if (this.flashEntries.length > 0) {
       this.startAnimationLoop();
     }
+  }
+
+  updatePlayers(players: GameState['players']): void {
+    if (!this.state) return;
+    this.state = { ...this.state, players };
+    this.updateLabelPositions();
   }
 
   setAttackTargetId(id: number | null): void {

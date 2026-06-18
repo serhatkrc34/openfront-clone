@@ -86,6 +86,11 @@ export class GameClient {
     this.ws.send(JSON.stringify(msg));
   }
 
+  sendSetName(name: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type: 'SET_NAME', payload: { name } }));
+  }
+
   getState(): GameState | null { return this.state; }
   getPlayerId(): string | null { return this.playerId; }
 

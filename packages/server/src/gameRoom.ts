@@ -116,6 +116,17 @@ export class GameRoom {
   }
 
   private handleMessage(playerId: string, msg: GameMessage): void {
+    if (msg.type === 'SET_NAME') {
+      const name = String((msg.payload as { name: string }).name ?? '').trim().slice(0, 20);
+      if (name && this.state.players[playerId]) {
+        const players = { ...this.state.players };
+        players[playerId] = { ...players[playerId], name };
+        this.state = { ...this.state, players };
+        this.broadcast({ type: 'GAME_STATE', payload: this.state });
+      }
+      return;
+    }
+
     if (this.state.phase !== 'playing') return;
 
     if (msg.type === 'CONQUER') {

@@ -30,7 +30,7 @@ export interface GameState {
     phase: 'lobby' | 'playing' | 'ended';
     winnerId: OwnerId;
 }
-export type MessageType = 'GAME_STATE' | 'PLAYER_JOIN' | 'PLAYER_LEAVE' | 'CONQUER' | 'TICK' | 'ERROR';
+export type MessageType = 'GAME_STATE' | 'PLAYER_JOIN' | 'PLAYER_LEAVE' | 'CONQUER' | 'TICK' | 'ERROR' | 'SET_NAME';
 export interface GameMessage {
     type: MessageType;
     payload: unknown;

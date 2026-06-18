@@ -40,7 +40,8 @@ export type MessageType =
   | 'PLAYER_LEAVE'
   | 'CONQUER'
   | 'TICK'
-  | 'ERROR';
+  | 'ERROR'
+  | 'SET_NAME';
 
 export interface GameMessage {
   type: MessageType;

@@ -10,24 +10,32 @@ import {
 } from '@openfront/core';
 
 // UI elements
-const connectingOverlay = document.getElementById('connecting-overlay')!;
-const gameoverOverlay  = document.getElementById('gameover-overlay')!;
-const gameoverTitle    = document.getElementById('gameover-title')!;
-const gameoverMsg      = document.getElementById('gameover-msg')!;
-const playerNameEl     = document.getElementById('player-name')!;
-const statTroops       = document.getElementById('stat-troops')!;
-const statWorkers      = document.getElementById('stat-workers')!;
-const statPop          = document.getElementById('stat-pop')!;
-const statGold         = document.getElementById('stat-gold')!;
-const statTiles        = document.getElementById('stat-tiles')!;
-const lbList           = document.getElementById('lb-list')!;
-const troopSlider      = document.getElementById('troop-slider') as HTMLInputElement;
-const troopPctLabel    = document.getElementById('troop-pct-label')!;
-const statusMsg        = document.getElementById('status-msg')!;
-const tileTooltip      = document.getElementById('tile-tooltip')!;
-const attackIndicator  = document.getElementById('attack-indicator')!;
+const connectingOverlay  = document.getElementById('connecting-overlay')!;
+const connectSpinner     = document.getElementById('connect-spinner')!;
+const connectStatus      = document.getElementById('connect-status')!;
+const playerNameInput    = document.getElementById('player-name-input') as HTMLInputElement;
+const joinBtn            = document.getElementById('join-btn')!;
+const gameoverOverlay    = document.getElementById('gameover-overlay')!;
+const gameoverTitle      = document.getElementById('gameover-title')!;
+const gameoverMsg        = document.getElementById('gameover-msg')!;
+const playerNameEl       = document.getElementById('player-name')!;
+const statTroops         = document.getElementById('stat-troops')!;
+const statWorkers        = document.getElementById('stat-workers')!;
+const statPop            = document.getElementById('stat-pop')!;
+const statGold           = document.getElementById('stat-gold')!;
+const statTiles          = document.getElementById('stat-tiles')!;
+const lbList             = document.getElementById('lb-list')!;
+const gameTimerEl        = document.getElementById('game-timer')!;
+const troopSlider        = document.getElementById('troop-slider') as HTMLInputElement;
+const troopPctLabel      = document.getElementById('troop-pct-label')!;
+const statusMsg          = document.getElementById('status-msg')!;
+const tileTooltip        = document.getElementById('tile-tooltip')!;
+const attackIndicator    = document.getElementById('attack-indicator')!;
 
 let statusTimeout: ReturnType<typeof setTimeout> | null = null;
+let gameStartTime: number | null = null;
+let timerInterval: ReturnType<typeof setInterval> | null = null;
+let myPlayerId: string | null = null;
 
 function showStatus(msg: string, isError = true): void {
   statusMsg.textContent = msg;
@@ -60,18 +68,31 @@ function updateHUD(state: GameState, playerId: string): void {
 }
 
 function updateLeaderboard(state: GameState): void {
+  const totalLand = state.tiles.filter(t => t.type !== 'ocean' && t.type !== 'lake').length;
   const sorted = Object.values(state.players)
     .filter(p => !p.isEliminated)
     .sort((a, b) => b.tileCount - a.tileCount)
-    .slice(0, 6);
+    .slice(0, 8);
 
-  lbList.innerHTML = sorted.map((p, i) => `
-    <div class="lb-row">
-      <div class="lb-color" style="background:${numToHex(p.color)}"></div>
-      <span class="lb-name">${i + 1}. ${p.name}</span>
-      <span class="lb-tiles">${p.tileCount}</span>
-    </div>
-  `).join('');
+  lbList.innerHTML = sorted.map((p, i) => {
+    const pct = totalLand > 0 ? ((p.tileCount / totalLand) * 100).toFixed(1) : '0.0';
+    const isMe = p.id === myPlayerId;
+    return `<tr class="${isMe ? 'lb-me' : ''}">
+      <td>${i + 1}</td>
+      <td><div class="lb-player-cell"><span class="lb-dot" style="background:${numToHex(p.color)}"></span><span class="lb-player-name">${p.name}</span></div></td>
+      <td class="lb-pct">${pct}%</td>
+      <td class="lb-gold">${fmt(p.gold)}</td>
+      <td class="lb-troops">${fmt(p.troops)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function updateTimer(): void {
+  if (!gameStartTime) return;
+  const elapsed = Math.floor((Date.now() - gameStartTime) / 1000);
+  const mm = Math.floor(elapsed / 60).toString().padStart(2, '0');
+  const ss = (elapsed % 60).toString().padStart(2, '0');
+  gameTimerEl.textContent = `${mm}:${ss}`;
 }
 
 function showTileTooltip(tile: Tile | null, state: GameState): void {
@@ -85,26 +106,16 @@ function showTileTooltip(tile: Tile | null, state: GameState): void {
 
 // ─── Auto-attack engine ───────────────────────────────────────────────────────
 
-let attackTarget: number | null = null;  // The tile the player wants to conquer
+let attackTarget: number | null = null;
 let isAttacking = false;
 
-/**
- * BFS from attackTarget backward; finds the first tile adjacent to
- * player-owned territory that lies on the shortest path to target.
- */
-function findNextStep(
-  state: GameState,
-  playerId: string,
-  targetId: number,
-): number | null {
+function findNextStep(state: GameState, playerId: string, targetId: number): number | null {
   const { tiles, mapWidth, mapHeight } = state;
   const target = tiles[targetId];
   if (!target || target.owner === playerId) return null;
 
-  // BFS from target; when we reach an owned tile, the previous node is next step
   const queue: number[] = [targetId];
   const visited = new Set<number>([targetId]);
-  const prev = new Map<number, number>(); // node -> came_from (away from target)
 
   while (queue.length > 0) {
     const cur = queue.shift()!;
@@ -113,10 +124,8 @@ function findNextStep(
       const adj = tiles[adjId];
       if (!adj || !canConquer(adj)) continue;
       visited.add(adjId);
-      prev.set(adjId, cur);
       if (adj.owner === playerId) {
-        // Trace back one step toward target
-        return cur; // cur is adjacent to our territory, on path to target
+        return cur;
       }
       queue.push(adjId);
     }
@@ -124,10 +133,6 @@ function findNextStep(
   return null;
 }
 
-/**
- * After a target is conquered, auto-pick the best next tile to keep expanding.
- * Returns the cheapest adjacent conquerable tile not owned by player.
- */
 function pickAutoAdvance(state: GameState, playerId: string, fromTileId: number): number | null {
   const { tiles, mapWidth, mapHeight } = state;
   const adjIds = getAdjacentTileIds(fromTileId, mapWidth, mapHeight);
@@ -158,7 +163,6 @@ function startAutoAttackLoop(client: GameClient, getState: () => GameState | nul
     const target = state.tiles[attackTarget];
     if (!target) { setAttackTarget(null); return; }
 
-    // Target already conquered — auto-advance
     if (target.owner === playerId) {
       const next = pickAutoAdvance(state, playerId, attackTarget);
       if (next !== null) {
@@ -172,7 +176,6 @@ function startAutoAttackLoop(client: GameClient, getState: () => GameState | nul
 
     if (!canConquer(target)) { setAttackTarget(null); return; }
 
-    // Find next step on BFS path to target
     const nextStep = findNextStep(state, playerId, attackTarget);
     if (nextStep === null) {
       setAttackTarget(null);
@@ -188,7 +191,6 @@ function startAutoAttackLoop(client: GameClient, getState: () => GameState | nul
     if (available >= cost) {
       client.sendConquer(nextStep, pct);
     }
-    // else: not enough troops yet — wait silently until next interval
   }, 450);
 }
 
@@ -210,7 +212,6 @@ async function main(): Promise<void> {
   const client = new GameClient();
 
   let currentState: GameState | null = null;
-  let myPlayerId: string | null = null;
 
   troopSlider.addEventListener('input', () => {
     troopPctLabel.textContent = troopSlider.value + '%';
@@ -232,7 +233,6 @@ async function main(): Promise<void> {
     const tile = currentState.tiles[tileId];
     if (!tile) return;
 
-    // Click own tile = cancel attack
     if (tile.owner === myPlayerId) {
       setAttackTarget(null);
       showStatus('Saldırı iptal edildi.', false);
@@ -245,7 +245,6 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Set as attack target — auto-expand loop handles the rest
     setAttackTarget(tileId, tile.type);
     renderer.setAttackTargetId(tileId);
     showStatus(`Hedef belirlendi: ${tile.type}. Otomatik genişleme başlıyor…`, false);
@@ -253,13 +252,48 @@ async function main(): Promise<void> {
 
   startAutoAttackLoop(client, () => currentState, () => myPlayerId);
 
+  // ─── Name input + join flow ─────────────────────────────────────────────────
+
+  function doJoin(): void {
+    const name = playerNameInput.value.trim();
+    joinBtn.setAttribute('disabled', 'true');
+    connectSpinner.style.display = 'block';
+    connectStatus.style.display = 'block';
+    connectStatus.textContent = 'Sunucuya bağlanılıyor...';
+    client.connect(getWsUrl());
+    // After PLAYER_JOIN fires, we'll send the name
+    if (name) {
+      // stored so onConnect handler can use it
+      (client as unknown as { _pendingName: string })._pendingName = name;
+    }
+  }
+
+  joinBtn.addEventListener('click', doJoin);
+  playerNameInput.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Enter') doJoin();
+  });
+
+  // ─── Client callbacks ───────────────────────────────────────────────────────
+
   client.onConnect((playerId, state) => {
     myPlayerId = playerId;
     currentState = state;
+
+    // Send custom name if set
+    const pendingName = (client as unknown as { _pendingName?: string })._pendingName;
+    if (pendingName) {
+      client.sendSetName(pendingName);
+    }
+
     connectingOverlay.style.display = 'none';
     renderer.setState(state, playerId);
     updateHUD(state, playerId);
     updateLeaderboard(state);
+
+    gameStartTime = Date.now();
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(updateTimer, 1000);
+
     showStatus('Bağlandı! Haritada bir hedefe tıkla — otomatik genişler.', false);
   });
 
@@ -271,6 +305,7 @@ async function main(): Promise<void> {
     updateLeaderboard(state);
 
     if (state.phase === 'ended') {
+      if (timerInterval) clearInterval(timerInterval);
       const winner = state.winnerId ? state.players[state.winnerId] : null;
       gameoverOverlay.style.display = 'flex';
       if (state.winnerId === myPlayerId) {
@@ -294,6 +329,7 @@ async function main(): Promise<void> {
     currentState = { ...currentState, tick, players };
     updateHUD(currentState, myPlayerId);
     updateLeaderboard(currentState);
+    renderer.updatePlayers(players);
   });
 
   client.onServerError((msg) => {
@@ -302,12 +338,14 @@ async function main(): Promise<void> {
 
   client.onDisconnect(() => {
     setAttackTarget(null);
+    if (timerInterval) clearInterval(timerInterval);
     connectingOverlay.style.display = 'flex';
-    connectingOverlay.querySelector('p')!.textContent = 'Bağlantı kesildi. Yeniden bağlanılıyor…';
+    connectSpinner.style.display = 'block';
+    connectStatus.style.display = 'block';
+    connectStatus.textContent = 'Bağlantı kesildi. Yeniden bağlanılıyor…';
+    joinBtn.removeAttribute('disabled');
     setTimeout(() => client.connect(getWsUrl()), 2000);
   });
-
-  client.connect(getWsUrl());
 }
 
 function getWsUrl(): string {

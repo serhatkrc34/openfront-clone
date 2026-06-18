@@ -2,16 +2,16 @@ import { GameState, Player, ConquerPayload } from './types';
 import { getAdjacentTileIds, getConquestCost, canConquer } from './map';
 
 export const PLAYER_COLORS = [
-  0xff2244,  // vivid red
-  0x2266ff,  // vivid blue
-  0x22cc55,  // vivid green
-  0xff8800,  // vivid orange
-  0xaa22ff,  // vivid purple
-  0x00ccdd,  // vivid cyan
-  0xff2299,  // vivid pink
-  0xffdd00,  // vivid yellow
-  0x00ddaa,  // vivid mint
-  0xff5522,  // vivid coral
+  0xe05c6e,  // soft red
+  0x5c8ee0,  // soft blue
+  0x5cc87a,  // soft green
+  0xe09a5c,  // soft orange
+  0x9a5ce0,  // soft purple
+  0x3db8c8,  // soft cyan
+  0xd45ca0,  // soft pink
+  0xc8b830,  // soft yellow
+  0x3cbfa8,  // soft mint
+  0xd4724a,  // soft coral
 ];
 
 const POPULATION_GROWTH_RATE = 0.0015;
