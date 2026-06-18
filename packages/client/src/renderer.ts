@@ -1,20 +1,19 @@
 import { Application, Graphics, Container, Text } from 'pixi.js';
 import { GameState, Tile, TileType, getAdjacentTileIds, canConquer } from '@openfront/core';
 
-const TILE_SIZE = 4; // Very small tiles → map appears large
+const TILE_SIZE = 4;
 
 const TERRAIN_COLORS: Record<TileType, number> = {
-  ocean:    0x0a1e35,
-  lake:     0x0d5080,
-  plains:   0x1e6832,
-  highland: 0x6b7a28,
-  mountain: 0x524850,
+  ocean:    0x0c1e3c,
+  lake:     0x0c3870,
+  plains:   0x246428,
+  highland: 0x606820,
+  mountain: 0x605048,
 };
 
 const WATER_TYPES = new Set<TileType>(['ocean', 'lake']);
 const LAND_TYPES  = new Set<TileType>(['plains', 'highland', 'mountain']);
 
-// Elevation base values per terrain type (0–100 scale)
 const ELEVATION_BASE: Record<TileType, number> = {
   ocean:    20,
   lake:     30,
@@ -34,10 +33,11 @@ function rgbToHex(r: number, g: number, b: number): number {
 function blendColors(base: number, overlay: number, t: number): number {
   const b = hexToRgb(base);
   const o = hexToRgb(overlay);
-  const r = Math.round(b.r + (o.r - b.r) * t);
-  const g = Math.round(b.g + (o.g - b.g) * t);
-  const bl = Math.round(b.b + (o.b - b.b) * t);
-  return rgbToHex(r, g, bl);
+  return rgbToHex(
+    Math.round(b.r + (o.r - b.r) * t),
+    Math.round(b.g + (o.g - b.g) * t),
+    Math.round(b.b + (o.b - b.b) * t),
+  );
 }
 
 function applyBrightness(color: number, brightness: number): number {
@@ -49,29 +49,23 @@ function applyBrightness(color: number, brightness: number): number {
   );
 }
 
-function brightenColor(color: number, factor: number): number {
-  return applyBrightness(color, factor);
+// Subtle per-tile noise so terrain has organic variation
+function tileNoise(id: number): number {
+  return ((id * 7919 + 13337) % 256) / 256; // 0–1
 }
 
-// Elevation-based terrain shading: brightness = 0.55 + (elevation/100) * 0.7
-function elevationShade(baseColor: number, elevation: number): number {
-  const brightness = 0.55 + (elevation / 100) * 0.7;
-  return applyBrightness(baseColor, brightness);
-}
-
-// Flash entry tracking
-interface FlashEntry {
-  tileId: number;
-  startTime: number;
-}
-
-const FLASH_DURATION = 600; // ms
+interface FlashEntry { tileId: number; startTime: number; }
+const FLASH_DURATION = 500;
 
 export class Renderer {
   private app: Application;
   private mapContainer: Container;
-  private minimapGfx: Graphics;
   private mapGfx: Graphics;
+  private minimapGfx: Graphics;
+  private labelsContainer: Container;
+
+  private playerLabels: Map<string, Text> = new Map();
+  private playerCentroids: Map<string, { cx: number; cy: number }> = new Map();
 
   private cameraX = 0;
   private cameraY = 0;
@@ -83,10 +77,7 @@ export class Renderer {
   private dragCamStart = { x: 0, y: 0 };
 
   private hoveredTileId: number | null = null;
-
-  // Tiles the current player can conquer (border frontier)
   private conquerableTiles: Set<number> = new Set();
-  // The final target tile set by the player
   private attackTargetId: number | null = null;
 
   private state: GameState | null = null;
@@ -96,17 +87,12 @@ export class Renderer {
   private onTileClickCb: ((tileId: number) => void) | null = null;
   private onTileHoverCb: ((tile: Tile | null) => void) | null = null;
 
-  // Territory text labels
-  private labelsContainer: Container;
-  private playerLabels: Map<string, Text> = new Map();
-  private playerCentroids: Map<string, { cx: number; cy: number }> = new Map();
-
-  // Conquest flash entries
   private flashEntries: FlashEntry[] = [];
   private animating = false;
 
   constructor(app: Application) {
     this.app = app;
+
     this.mapContainer = new Container();
     this.app.stage.addChild(this.mapContainer);
 
@@ -131,7 +117,7 @@ export class Renderer {
     canvas.addEventListener('wheel', (e: WheelEvent) => {
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.12 : 0.9;
-      const newZoom = Math.min(8, Math.max(0.3, this.zoom * factor));
+      const newZoom = Math.min(10, Math.max(0.3, this.zoom * factor));
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
@@ -242,14 +228,13 @@ export class Renderer {
       const now = performance.now();
       this.flashEntries = this.flashEntries.filter(f => now - f.startTime < FLASH_DURATION);
       this.renderMap();
-      if (this.flashEntries.length > 0) {
-        requestAnimationFrame(tick);
-      } else {
-        this.animating = false;
-      }
+      if (this.flashEntries.length > 0) requestAnimationFrame(tick);
+      else this.animating = false;
     };
     requestAnimationFrame(tick);
   }
+
+  // ── Labels ────────────────────────────────────────────────────────────────
 
   private fmtN(n: number): string {
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
@@ -290,17 +275,16 @@ export class Renderer {
 
       let label = this.playerLabels.get(id);
       if (!label) {
-        const colorHex = '#' + p.color.toString(16).padStart(6, '0');
         label = new Text({
           text: '',
           style: {
             fontFamily: 'Segoe UI, system-ui, sans-serif',
-            fontSize: 11,
+            fontSize: 12,
             fontWeight: '700',
-            fill: colorHex,
+            fill: '#' + p.color.toString(16).padStart(6, '0'),
             stroke: { color: '#000000', width: 3 },
             align: 'center',
-            lineHeight: 15,
+            lineHeight: 16,
           },
         });
         label.anchor.set(0.5, 0.5);
@@ -319,6 +303,8 @@ export class Renderer {
     }
   }
 
+  // ── Public state methods ──────────────────────────────────────────────────
+
   setState(state: GameState, playerId: string): void {
     const isFirst = !this.state;
     this.state = state;
@@ -326,12 +312,10 @@ export class Renderer {
     this.recordOwners(state);
 
     if (isFirst) {
-      const sw = this.app.screen.width;
-      const sh = this.app.screen.height;
       const mapPxW = state.mapWidth * TILE_SIZE;
       const mapPxH = state.mapHeight * TILE_SIZE;
-      this.cameraX = (sw - mapPxW) / 2;
-      this.cameraY = (sh - mapPxH) / 2;
+      this.cameraX = (this.app.screen.width  - mapPxW) / 2;
+      this.cameraY = (this.app.screen.height - mapPxH) / 2;
       this.applyCamera();
     }
 
@@ -351,9 +335,7 @@ export class Renderer {
     this.renderMap();
     this.updateLabelPositions();
     this.renderMinimap();
-    if (this.flashEntries.length > 0) {
-      this.startAnimationLoop();
-    }
+    if (this.flashEntries.length > 0) this.startAnimationLoop();
   }
 
   updatePlayers(players: GameState['players']): void {
@@ -362,15 +344,41 @@ export class Renderer {
     this.updateLabelPositions();
   }
 
-  setAttackTargetId(id: number | null): void {
-    this.attackTargetId = id;
-    this.renderMap();
+  setAttackTargetId(id: number | null): void { this.attackTargetId = id; this.renderMap(); }
+  clearAttackTarget(): void { this.attackTargetId = null; this.renderMap(); }
+
+  // ── Core tile color logic ─────────────────────────────────────────────────
+
+  private baseTileColor(tile: Tile, players: GameState['players']): number {
+    const base = TERRAIN_COLORS[tile.type];
+    const elev = ELEVATION_BASE[tile.type];
+    const noise = tileNoise(tile.id);
+
+    if (tile.owner && players[tile.owner]) {
+      const p = players[tile.owner];
+      // Elevation modulates brightness: 0.70–1.18 range
+      const elevFactor = 0.70 + (elev / 100) * 0.48;
+      // Subtle per-tile noise: ±4% brightness for organic feel
+      const noiseF = 0.96 + noise * 0.08;
+      let c = applyBrightness(p.color, elevFactor * noiseF);
+      // Very faint terrain hint (7%) preserves sense of geography
+      c = blendColors(c, base, 0.07);
+      return c;
+    }
+
+    if (WATER_TYPES.has(tile.type)) {
+      const bright = 0.55 + (elev / 100) * 0.55;
+      const noiseF = 0.95 + noise * 0.10;
+      return applyBrightness(base, bright * noiseF);
+    }
+
+    // Neutral land: dark and recessed — owned territories pop out
+    const bright = (0.50 + (elev / 100) * 0.30) * 0.55;
+    const noiseF = 0.90 + noise * 0.20; // more noise variation for visual texture
+    return applyBrightness(base, bright * noiseF);
   }
 
-  clearAttackTarget(): void {
-    this.attackTargetId = null;
-    this.renderMap();
-  }
+  // ── Rendering ─────────────────────────────────────────────────────────────
 
   private renderMap(): void {
     if (!this.state) return;
@@ -381,131 +389,102 @@ export class Renderer {
     const ts = TILE_SIZE;
     const now = performance.now();
 
-    // ── Pass 1: base fills with elevation shading ──
+    // ── Pass 1: terrain + territory fills ──
     for (const tile of tiles) {
+      let fill = this.baseTileColor(tile, players);
       const px = tile.x * ts;
       const py = tile.y * ts;
 
-      const elevation = ELEVATION_BASE[tile.type];
-      let fill = elevationShade(TERRAIN_COLORS[tile.type], elevation);
-
-      if (tile.owner) {
-        const p = players[tile.owner];
-        if (p) fill = blendColors(fill, p.color, 0.55);
-      }
-
-      // Hover effect: brighter overlay on conquerable frontier tiles
-      if (tile.id === this.hoveredTileId && this.conquerableTiles.has(tile.id)) {
-        fill = blendColors(fill, 0xffffff, 0.28);
-      } else if (tile.id === this.hoveredTileId && canConquer(tile)) {
-        fill = blendColors(fill, 0xffffff, 0.15);
+      if (tile.id === this.hoveredTileId) {
+        if (this.conquerableTiles.has(tile.id)) {
+          fill = blendColors(fill, 0x66ff88, 0.5);
+        } else if (canConquer(tile)) {
+          fill = blendColors(fill, 0xffffff, 0.20);
+        }
       }
 
       g.rect(px, py, ts, ts);
       g.fill({ color: fill });
     }
 
-    // ── Pass 2: coastline accents ──
-    for (const tile of tiles) {
-      if (!LAND_TYPES.has(tile.type)) continue;
-      const px = tile.x * ts;
-      const py = tile.y * ts;
-
-      // Check right neighbor for land→water boundary
-      if (tile.x + 1 < mapWidth) {
-        const right = tiles[tile.y * mapWidth + (tile.x + 1)];
-        if (right && WATER_TYPES.has(right.type)) {
-          g.moveTo(px + ts, py).lineTo(px + ts, py + ts);
-          g.stroke({ color: 0x88ccff, width: 1, alpha: 0.8 });
-        }
-      }
-
-      // Check bottom neighbor for land→water boundary
-      if (tile.y + 1 < mapHeight) {
-        const bottom = tiles[(tile.y + 1) * mapWidth + tile.x];
-        if (bottom && WATER_TYPES.has(bottom.type)) {
-          g.moveTo(px, py + ts).lineTo(px + ts, py + ts);
-          g.stroke({ color: 0x88ccff, width: 1, alpha: 0.8 });
-        }
-      }
-    }
-
-    // ── Pass 3: territory borders (right + bottom edges only, no duplicates) ──
+    // ── Pass 2: territory borders ──
     for (const tile of tiles) {
       if (!tile.owner) continue;
-      const px = tile.x * ts;
-      const py = tile.y * ts;
       const p = players[tile.owner];
       if (!p) continue;
-      // Brighten player color mixed with white 40% for crisp border
-      const borderColor = blendColors(p.color, 0xffffff, 0.4);
+      const px = tile.x * ts;
+      const py = tile.y * ts;
+      // Bright border between different territory regions
+      const borderColor = blendColors(p.color, 0xffffff, 0.6);
 
-      // Right neighbor
       if (tile.x + 1 < mapWidth) {
         const right = tiles[tile.y * mapWidth + (tile.x + 1)];
         if (right && right.owner !== tile.owner) {
           g.moveTo(px + ts, py).lineTo(px + ts, py + ts);
-          g.stroke({ color: borderColor, width: 1 });
+          g.stroke({ color: borderColor, width: 1.5 });
         }
       }
-
-      // Bottom neighbor
       if (tile.y + 1 < mapHeight) {
         const bottom = tiles[(tile.y + 1) * mapWidth + tile.x];
         if (bottom && bottom.owner !== tile.owner) {
           g.moveTo(px, py + ts).lineTo(px + ts, py + ts);
-          g.stroke({ color: borderColor, width: 1 });
+          g.stroke({ color: borderColor, width: 1.5 });
         }
       }
     }
 
-    // ── Pass 4: conquerable frontier — green border ──
+    // ── Pass 3: coastline accent ──
+    for (const tile of tiles) {
+      if (!LAND_TYPES.has(tile.type)) continue;
+      const px = tile.x * ts;
+      const py = tile.y * ts;
+      if (tile.x + 1 < mapWidth) {
+        const r = tiles[tile.y * mapWidth + (tile.x + 1)];
+        if (r && WATER_TYPES.has(r.type)) {
+          g.moveTo(px + ts, py).lineTo(px + ts, py + ts);
+          g.stroke({ color: 0x4488cc, width: 1, alpha: 0.65 });
+        }
+      }
+      if (tile.y + 1 < mapHeight) {
+        const b = tiles[(tile.y + 1) * mapWidth + tile.x];
+        if (b && WATER_TYPES.has(b.type)) {
+          g.moveTo(px, py + ts).lineTo(px + ts, py + ts);
+          g.stroke({ color: 0x4488cc, width: 1, alpha: 0.65 });
+        }
+      }
+    }
+
+    // ── Pass 4: conquerable frontier (green glow) ──
     for (const tileId of this.conquerableTiles) {
       const tile = tiles[tileId];
       if (!tile) continue;
       const px = tile.x * ts;
       const py = tile.y * ts;
       const isHov = tile.id === this.hoveredTileId;
-
-      if (isHov) {
-        // Show bright fill + thicker border on hover
-        const bright = blendColors(TERRAIN_COLORS[tile.type], 0x00ff88, 0.5);
-        g.rect(px, py, ts, ts);
-        g.fill({ color: bright });
-        g.rect(px, py, ts, ts);
-        g.stroke({ color: 0x44ee66, width: 1.5 });
-      } else {
-        g.rect(px, py, ts, ts);
-        g.stroke({ color: 0x44ee66, width: 1 });
-      }
+      g.rect(px, py, ts, ts);
+      g.stroke({ color: isHov ? 0x44ff66 : 0x33cc55, width: isHov ? 1.5 : 1, alpha: isHov ? 1 : 0.75 });
     }
 
-    // ── Pass 5: attack target — orange-red fill tint + border ──
+    // ── Pass 5: attack target (orange) ──
     if (this.attackTargetId !== null) {
       const t = tiles[this.attackTargetId];
       if (t) {
         const px = t.x * ts;
         const py = t.y * ts;
-        const tintFill = blendColors(TERRAIN_COLORS[t.type], 0xff5500, 0.65);
         g.rect(px, py, ts, ts);
-        g.fill({ color: tintFill });
+        g.fill({ color: 0xff4400, alpha: 0.45 });
         g.rect(px, py, ts, ts);
-        g.stroke({ color: 0xff6600, width: 1.5 });
+        g.stroke({ color: 0xff7700, width: 1.5 });
       }
     }
 
-    // ── Pass 6: conquest flash — white fade ──
-    if (this.flashEntries.length > 0) {
-      for (const flash of this.flashEntries) {
-        const tile = tiles[flash.tileId];
-        if (!tile) continue;
-        const elapsed = now - flash.startTime;
-        const alpha = Math.max(0, 1 - elapsed / FLASH_DURATION);
-        const px = tile.x * ts;
-        const py = tile.y * ts;
-        g.rect(px, py, ts, ts);
-        g.fill({ color: 0xffffff, alpha });
-      }
+    // ── Pass 6: conquest flash ──
+    for (const flash of this.flashEntries) {
+      const tile = tiles[flash.tileId];
+      if (!tile) continue;
+      const alpha = Math.max(0, 1 - (now - flash.startTime) / FLASH_DURATION) * 0.65;
+      g.rect(tile.x * ts, tile.y * ts, ts, ts);
+      g.fill({ color: 0xffffff, alpha });
     }
   }
 
@@ -513,48 +492,44 @@ export class Renderer {
     if (!this.state) return;
     const { tiles, mapWidth, mapHeight, players } = this.state;
 
-    const mmW = 200;
+    const mmW = 180;
     const mmH = Math.round(mmW * (mapHeight / mapWidth));
-    const mx = this.app.screen.width  - mmW - 14;
-    const my = this.app.screen.height - mmH - 14;
+    const mx = this.app.screen.width  - mmW - 12;
+    const my = this.app.screen.height - mmH - 12;
     const tW = mmW / mapWidth;
     const tH = mmH / mapHeight;
 
     const g = this.minimapGfx;
     g.clear();
 
-    // Minimap background
+    // Background + border
     g.rect(mx - 2, my - 2, mmW + 4, mmH + 4);
-    g.fill({ color: 0x050a12 });
-    // Styled border
+    g.fill({ color: 0x040810 });
     g.rect(mx - 2, my - 2, mmW + 4, mmH + 4);
-    g.stroke({ color: 0x284090, width: 1, alpha: 0.7 });
+    g.stroke({ color: 0x1e3870, width: 1 });
 
     for (const tile of tiles) {
-      let color = TERRAIN_COLORS[tile.type];
-      if (tile.owner) {
+      let color: number;
+      if (tile.owner && players[tile.owner]) {
         const p = players[tile.owner];
-        if (p) {
-          color = blendColors(color, p.color, 0.75);
-          // Current player's own tiles slightly brighter on minimap
-          if (tile.owner === this.playerId) {
-            color = brightenColor(color, 1.25);
-          }
-        }
+        color = tile.owner === this.playerId
+          ? applyBrightness(p.color, 1.25)
+          : applyBrightness(p.color, 0.85);
+      } else if (WATER_TYPES.has(tile.type)) {
+        color = applyBrightness(TERRAIN_COLORS[tile.type], 0.8);
+      } else {
+        color = applyBrightness(TERRAIN_COLORS[tile.type], 0.30);
       }
       g.rect(mx + tile.x * tW, my + tile.y * tH, Math.max(1, tW), Math.max(1, tH));
       g.fill({ color });
     }
 
-    // Attack target: red dot on minimap
+    // Attack target dot
     if (this.attackTargetId !== null) {
       const at = tiles[this.attackTargetId];
       if (at) {
-        const dotX = mx + at.x * tW;
-        const dotY = my + at.y * tH;
-        const dotR = Math.max(1.5, tW * 1.5);
-        g.circle(dotX, dotY, dotR);
-        g.fill({ color: 0xff3300 });
+        g.circle(mx + at.x * tW, my + at.y * tH, Math.max(2, tW * 2));
+        g.fill({ color: 0xff4400 });
       }
     }
 
@@ -564,7 +539,7 @@ export class Renderer {
     const vw = (this.app.screen.width  / this.zoom / TILE_SIZE) * tW;
     const vh = (this.app.screen.height / this.zoom / TILE_SIZE) * tH;
     g.rect(mx + vx, my + vy, vw, vh);
-    g.stroke({ color: 0xffffff, width: 1, alpha: 0.8 });
+    g.stroke({ color: 0xffffff, width: 1, alpha: 0.6 });
   }
 
   setOnTileClick(cb: (tileId: number) => void): void { this.onTileClickCb = cb; }

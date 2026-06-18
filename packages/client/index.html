@@ -61,29 +61,30 @@
       position: absolute;
       top: 14px;
       left: 14px;
-      min-width: 210px;
+      min-width: 180px;
       pointer-events: none;
     }
 
     #player-name {
-      font-size: 13px;
-      font-weight: 700;
-      letter-spacing: 0.12em;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0.10em;
       text-transform: uppercase;
       color: #4488ff;
-      margin-bottom: 10px;
+      margin-bottom: 11px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      text-shadow: 0 0 12px rgba(68,136,255,0.4);
     }
 
     .stat-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 11.5px;
-      margin-bottom: 3px;
-      color: #5070a0;
+      font-size: 11px;
+      margin-bottom: 4px;
+      color: #4060a0;
     }
 
     .stat-label {
@@ -92,34 +93,14 @@
       gap: 5px;
     }
 
-    .stat-label .icon {
-      font-size: 12px;
-      line-height: 1;
-    }
+    .stat-label .icon { font-size: 11px; }
 
     .stat-value {
       color: #c8d8f0;
-      font-weight: 600;
+      font-weight: 700;
       font-size: 12px;
+      font-variant-numeric: tabular-nums;
     }
-
-    .stat-bar-wrap {
-      height: 2px;
-      background: rgba(40, 90, 200, 0.15);
-      border-radius: 1px;
-      margin-bottom: 7px;
-      overflow: hidden;
-    }
-
-    .stat-bar {
-      height: 100%;
-      border-radius: 1px;
-      width: 50%;
-      transition: width 0.4s ease;
-    }
-
-    #stat-troops-bar { background: #4488ff; }
-    #stat-pop-bar    { background: #33ee77; }
 
     /* ════════════════════════════
        Leaderboard — top right
@@ -471,37 +452,26 @@
 
     <!-- Player HUD — top left -->
     <div id="player-hud" class="panel">
-      <div id="player-name">Bağlanılıyor...</div>
-
+      <div id="player-name">—</div>
       <div class="stat-row">
-        <span class="stat-label"><span class="icon">🗡</span> Asker</span>
+        <span class="stat-label"><span class="icon">⚔</span> Asker</span>
         <span class="stat-value" id="stat-troops">0</span>
       </div>
-      <div class="stat-bar-wrap">
-        <div class="stat-bar" id="stat-troops-bar"></div>
-      </div>
-
       <div class="stat-row">
         <span class="stat-label"><span class="icon">⚒</span> İşçi</span>
         <span class="stat-value" id="stat-workers">0</span>
       </div>
-
       <div class="stat-row">
         <span class="stat-label"><span class="icon">👥</span> Nüfus</span>
         <span class="stat-value" id="stat-pop">0</span>
       </div>
-      <div class="stat-bar-wrap">
-        <div class="stat-bar" id="stat-pop-bar"></div>
-      </div>
-
       <div class="stat-row">
         <span class="stat-label"><span class="icon">💰</span> Altın</span>
         <span class="stat-value" id="stat-gold">0</span>
       </div>
-
       <div class="stat-row">
-        <span class="stat-label"><span class="icon">🏴</span> Toprak</span>
-        <span class="stat-value" id="stat-tiles">0 kare</span>
+        <span class="stat-label"><span class="icon">🗺</span> Toprak</span>
+        <span class="stat-value" id="stat-tiles">0 tile</span>
       </div>
     </div>
 
