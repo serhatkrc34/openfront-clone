@@ -191,7 +191,7 @@ function startAutoAttackLoop(client: GameClient, getState: () => GameState | nul
     if (available >= cost) {
       client.sendConquer(nextStep, pct);
     }
-  }, 450);
+  }, 150);
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────

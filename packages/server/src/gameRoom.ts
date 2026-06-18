@@ -10,8 +10,8 @@ import {
 } from '@openfront/core';
 import { computeBotAction, addBot } from './botAI';
 
-const TICK_MS = 200;
-const BOT_TICK_INTERVAL = 8; // bots act every 8 ticks (~1.6s)
+const TICK_MS = 100;
+const BOT_TICK_INTERVAL = 3; // bots act every 3 ticks (~0.3s)
 const BOT_COUNT = 5;
 
 export class GameRoom {
@@ -145,14 +145,14 @@ export class GameRoom {
   private tick(): void {
     if (this.state.phase !== 'playing') return;
 
-    // Run bot logic every N ticks
     if (this.state.tick % BOT_TICK_INTERVAL === 0) {
       this.tickBots();
     }
 
     this.state = tickGame(this.state);
 
-    if (this.state.tick % 5 === 0) {
+    // Full state every 10 ticks (1s at 100ms/tick); player stats every tick
+    if (this.state.tick % 10 === 0) {
       this.broadcast({ type: 'GAME_STATE', payload: this.state });
     } else {
       this.broadcast({ type: 'TICK', payload: { tick: this.state.tick, players: this.state.players } });
