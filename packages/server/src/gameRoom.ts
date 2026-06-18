@@ -11,8 +11,8 @@ import {
 import { computeBotAction, addBot } from './botAI';
 
 const TICK_MS = 100;
-const BOT_TICK_INTERVAL = 3; // bots act every 3 ticks (~0.3s)
-const BOT_COUNT = 5;
+const BOT_TICK_INTERVAL = 3;
+const BOT_COUNT = 20;
 
 export class GameRoom {
   private id: string;
@@ -45,11 +45,15 @@ export class GameRoom {
   }
 
   private initBots(): void {
-    const botNames = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'];
+    const botNames = [
+      'Alpha','Beta','Gamma','Delta','Epsilon',
+      'Zeta','Eta','Theta','Iota','Kappa',
+      'Lambda','Mu','Nu','Xi','Omicron',
+      'Pi','Rho','Sigma','Tau','Upsilon',
+    ];
     for (let i = 0; i < BOT_COUNT; i++) {
       const botId = `bot_${i}`;
-      const colorIndex = i + 1; // offset from player colors
-      this.state = addBot(this.state, botId, `Bot ${botNames[i]}`, colorIndex);
+      this.state = addBot(this.state, botId, botNames[i] ?? `Bot${i}`, i + 1);
       this.botIds.push(botId);
     }
   }

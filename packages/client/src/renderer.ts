@@ -78,7 +78,7 @@ export class Renderer {
 
   private hoveredTileId: number | null = null;
   private conquerableTiles: Set<number> = new Set();
-  private attackTargetId: number | null = null;
+  private attackTargetIds: Set<number> = new Set();
 
   private state: GameState | null = null;
   private prevOwners: Map<number, string | null> = new Map();
@@ -344,8 +344,8 @@ export class Renderer {
     this.updateLabelPositions();
   }
 
-  setAttackTargetId(id: number | null): void { this.attackTargetId = id; this.renderMap(); }
-  clearAttackTarget(): void { this.attackTargetId = null; this.renderMap(); }
+  setAttackTargetIds(ids: number[]): void { this.attackTargetIds = new Set(ids); this.renderMap(); }
+  clearAttackTargets(): void { this.attackTargetIds.clear(); this.renderMap(); }
 
   // ── Core tile color logic ─────────────────────────────────────────────────
 
@@ -465,17 +465,16 @@ export class Renderer {
       g.stroke({ color: isHov ? 0x44ff66 : 0x33cc55, width: isHov ? 1.5 : 1, alpha: isHov ? 1 : 0.75 });
     }
 
-    // ── Pass 5: attack target (orange) ──
-    if (this.attackTargetId !== null) {
-      const t = tiles[this.attackTargetId];
-      if (t) {
-        const px = t.x * ts;
-        const py = t.y * ts;
-        g.rect(px, py, ts, ts);
-        g.fill({ color: 0xff4400, alpha: 0.45 });
-        g.rect(px, py, ts, ts);
-        g.stroke({ color: 0xff7700, width: 1.5 });
-      }
+    // ── Pass 5: attack targets (orange) ──
+    for (const targetId of this.attackTargetIds) {
+      const t = tiles[targetId];
+      if (!t) continue;
+      const px = t.x * ts;
+      const py = t.y * ts;
+      g.rect(px, py, ts, ts);
+      g.fill({ color: 0xff4400, alpha: 0.45 });
+      g.rect(px, py, ts, ts);
+      g.stroke({ color: 0xff7700, width: 1.5 });
     }
 
     // ── Pass 6: conquest flash ──
@@ -524,9 +523,9 @@ export class Renderer {
       g.fill({ color });
     }
 
-    // Attack target dot
-    if (this.attackTargetId !== null) {
-      const at = tiles[this.attackTargetId];
+    // Attack target dots
+    for (const targetId of this.attackTargetIds) {
+      const at = tiles[targetId];
       if (at) {
         g.circle(mx + at.x * tW, my + at.y * tH, Math.max(2, tW * 2));
         g.fill({ color: 0xff4400 });
