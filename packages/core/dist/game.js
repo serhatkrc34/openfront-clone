@@ -1,12 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BUILDING_CAPACITY_BONUS = exports.BUILDING_GOLD_PER_TICK = exports.BUILDING_COSTS = exports.PLAYER_COLORS = void 0;
+exports.BUILDING_GROWTH_MULT = exports.BUILDING_CAPACITY_BONUS = exports.BUILDING_GOLD_PER_TICK = exports.BUILDING_COSTS = exports.PLAYER_COLORS = void 0;
 exports.createPlayer = createPlayer;
 exports.tickGame = tickGame;
 exports.applyConquer = applyConquer;
 exports.applyBuild = applyBuild;
 exports.applyAlliance = applyAlliance;
 exports.breakAlliance = breakAlliance;
+exports.applyNuke = applyNuke;
 const map_1 = require("./map");
 exports.PLAYER_COLORS = [
     0xd03050, // deep rose
@@ -25,18 +26,28 @@ exports.BUILDING_COSTS = {
     port: 300,
     sam: 800,
     silo: 1200,
+    factory: 800,
 };
 exports.BUILDING_GOLD_PER_TICK = {
     city: 3,
     port: 5,
     sam: 0,
     silo: 0,
+    factory: 0,
 };
 exports.BUILDING_CAPACITY_BONUS = {
     city: 5000,
     port: 500,
     sam: 0,
     silo: 0,
+    factory: 0,
+};
+exports.BUILDING_GROWTH_MULT = {
+    city: 1,
+    port: 1,
+    sam: 1,
+    silo: 1,
+    factory: 1.4,
 };
 const GOLD_PER_WORKER_TICK = 0.15;
 const VICTORY_THRESHOLD = 0.8;
@@ -67,9 +78,13 @@ function tickGame(state) {
     // Compute building bonuses per player
     const buildingGold = {};
     const buildingCapBonus = {};
+    const factMult = {};
     for (const building of Object.values(state.buildings)) {
         buildingGold[building.ownerId] = (buildingGold[building.ownerId] ?? 0) + exports.BUILDING_GOLD_PER_TICK[building.type];
         buildingCapBonus[building.ownerId] = (buildingCapBonus[building.ownerId] ?? 0) + exports.BUILDING_CAPACITY_BONUS[building.type];
+        if (building.type === 'factory') {
+            factMult[building.ownerId] = (factMult[building.ownerId] ?? 1) * exports.BUILDING_GROWTH_MULT.factory;
+        }
     }
     const conquerableTiles = newTiles.filter(t => t.type !== 'ocean' && t.type !== 'lake').length;
     let newPhase = state.phase;
@@ -89,7 +104,8 @@ function tickGame(state) {
         }
         const capacity = ownedTiles * 2000 + 4000 + (buildingCapBonus[playerId] ?? 0);
         const baseGrowth = 8;
-        const growthPerTick = (baseGrowth + Math.pow(player.troops, 0.70) / 5) * Math.max(0, 1 - player.population / capacity);
+        const mult = factMult[playerId] ?? 1;
+        const growthPerTick = (baseGrowth + Math.pow(player.troops, 0.70) / 5) * Math.max(0, 1 - player.population / capacity) * mult;
         player.population = Math.max(200, Math.floor(player.population + growthPerTick * 2));
         player.troops = Math.floor(player.population * player.troopRatio);
         player.workers = Math.floor(player.population * (1 - player.troopRatio));
@@ -210,5 +226,58 @@ function breakAlliance(state, playerA, playerB) {
         [playerB]: { ...b, alliances: b.alliances.filter(id => id !== playerA) },
     };
     return { ...state, players: newPlayers };
+}
+function applyNuke(state, playerId, payload) {
+    const player = state.players[playerId];
+    if (!player || player.isEliminated)
+        return { success: false, error: 'Oyuncu bulunamadı' };
+    const silo = state.buildings[payload.siloTileId];
+    if (!silo || silo.type !== 'silo' || silo.ownerId !== playerId)
+        return { success: false, error: 'Bu konumda silo yok' };
+    const targetTile = state.tiles[payload.targetTileId];
+    if (!targetTile)
+        return { success: false, error: 'Geçersiz hedef' };
+    // Check SAM interception (any SAM within 15 tiles of target)
+    const SAM_RADIUS = 15;
+    for (const b of Object.values(state.buildings)) {
+        if (b.type !== 'sam')
+            continue;
+        const samTile = state.tiles[b.tileId];
+        if (!samTile)
+            continue;
+        const dx = samTile.x - targetTile.x, dy = samTile.y - targetTile.y;
+        if (Math.sqrt(dx * dx + dy * dy) <= SAM_RADIUS) {
+            const nb = { ...state.buildings };
+            delete nb[b.tileId];
+            const ns = { ...nb };
+            delete ns[payload.siloTileId];
+            return { success: true, intercepted: true, interceptedAt: b.tileId, state: { ...state, buildings: { ...ns } } };
+        }
+    }
+    // Nuke hits — clear tiles in radius 8
+    const RADIUS = 8;
+    const newTiles = [...state.tiles];
+    const newPlayers = { ...state.players };
+    for (const tile of state.tiles) {
+        const dx = tile.x - targetTile.x, dy = tile.y - targetTile.y;
+        if (Math.sqrt(dx * dx + dy * dy) <= RADIUS && tile.owner) {
+            const owner = newPlayers[tile.owner];
+            if (owner)
+                newPlayers[tile.owner] = { ...owner, population: Math.max(100, Math.floor(owner.population * 0.65)), troops: Math.max(50, Math.floor(owner.troops * 0.65)), workers: Math.max(50, Math.floor(owner.workers * 0.65)) };
+            newTiles[tile.id] = { ...tile, owner: null, troops: 0 };
+        }
+    }
+    const newBuildings = { ...state.buildings };
+    delete newBuildings[payload.siloTileId];
+    // Also destroy any buildings in blast radius
+    for (const b of Object.values(state.buildings)) {
+        const bt = state.tiles[b.tileId];
+        if (bt) {
+            const dx = bt.x - targetTile.x, dy = bt.y - targetTile.y;
+            if (Math.sqrt(dx * dx + dy * dy) <= RADIUS)
+                delete newBuildings[b.tileId];
+        }
+    }
+    return { success: true, intercepted: false, state: { ...state, tiles: newTiles, players: newPlayers, buildings: newBuildings } };
 }
 //# sourceMappingURL=game.js.map
