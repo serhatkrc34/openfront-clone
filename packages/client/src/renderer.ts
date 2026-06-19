@@ -84,7 +84,7 @@ export class Renderer {
 
   private hoveredTileId: number | null = null;
   private conquerableTiles: Set<number> = new Set();
-  private attackTargetPlayerIds: Set<string> = new Set();
+  private attackTargetIds: Set<number> = new Set();
 
   private state: GameState | null = null;
   private prevOwners: Map<number, string | null> = new Map();
@@ -363,13 +363,13 @@ export class Renderer {
     this.updateLabelPositions();
   }
 
-  setAttackTargetPlayerIds(ids: string[]): void {
-    this.attackTargetPlayerIds = new Set(ids);
+  setAttackTargetIds(ids: number[]): void {
+    this.attackTargetIds = new Set(ids);
     this.renderMap();
   }
 
   clearAttackTargets(): void {
-    this.attackTargetPlayerIds.clear();
+    this.attackTargetIds.clear();
     this.renderMap();
   }
 
@@ -412,15 +412,7 @@ export class Renderer {
     const now = performance.now();
     const myId = this.playerId;
 
-    // Build set of all tiles owned by attack target players
-    const attackTargetTiles = new Set<number>();
-    if (this.attackTargetPlayerIds.size > 0) {
-      for (const tile of tiles) {
-        if (tile.owner && this.attackTargetPlayerIds.has(tile.owner)) {
-          attackTargetTiles.add(tile.id);
-        }
-      }
-    }
+    const attackTargetTiles = this.attackTargetIds;
 
     // ── Pass 1: terrain + territory fills ──
     for (const tile of tiles) {
@@ -510,26 +502,14 @@ export class Renderer {
       g.fill({ color: 0xff4400, alpha: 0.35 });
     }
 
-    // ── Pass 6: attack target border highlight ──
+    // ── Pass 6: attack target tile border ring ──
     for (const tileId of attackTargetTiles) {
       const tile = tiles[tileId];
       if (!tile) continue;
       const px = tile.x * ts;
       const py = tile.y * ts;
-      // Only draw border on edges that face OUR territory
-      const adjIds = [[tile.x + 1, tile.y], [tile.x - 1, tile.y], [tile.x, tile.y + 1], [tile.x, tile.y - 1]];
-      for (const [nx, ny] of adjIds) {
-        if (nx < 0 || ny < 0 || nx >= mapWidth || ny >= mapHeight) continue;
-        const adj = tiles[ny * mapWidth + nx];
-        if (adj?.owner === myId) {
-          // Draw border on this edge
-          if (nx > tile.x) { g.moveTo(px + ts, py); g.lineTo(px + ts, py + ts); }
-          else if (nx < tile.x) { g.moveTo(px, py); g.lineTo(px, py + ts); }
-          else if (ny > tile.y) { g.moveTo(px, py + ts); g.lineTo(px + ts, py + ts); }
-          else { g.moveTo(px, py); g.lineTo(px + ts, py); }
-          g.stroke({ color: 0xff7700, width: 1, alpha: 0.9 });
-        }
-      }
+      g.rect(px, py, ts, ts);
+      g.stroke({ color: 0xff7700, width: 1, alpha: 0.9 });
     }
 
     // ── Pass 7: buildings ──
@@ -593,10 +573,11 @@ export class Renderer {
     }
 
     // Attack target dots on minimap
-    for (const tile of tiles) {
-      if (tile.owner && this.attackTargetPlayerIds.has(tile.owner)) {
-        g.rect(mx + tile.x * tW, my + tile.y * tH, Math.max(1, tW), Math.max(1, tH));
-        g.fill({ color: 0xff4400, alpha: 0.6 });
+    for (const tileId of this.attackTargetIds) {
+      const at = tiles[tileId];
+      if (at) {
+        g.circle(mx + at.x * tW + tW / 2, my + at.y * tH + tH / 2, Math.max(2, tW * 2));
+        g.fill({ color: 0xff4400 });
       }
     }
 
