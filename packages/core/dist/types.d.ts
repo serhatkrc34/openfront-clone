@@ -1,6 +1,6 @@
 export type TileType = 'plains' | 'mountain' | 'highland' | 'ocean' | 'lake';
 export type OwnerId = string | null;
-export type BuildingType = 'city' | 'port' | 'sam' | 'silo' | 'factory';
+export type BuildingType = 'city' | 'port' | 'sam' | 'silo' | 'factory' | 'defensePost';
 export interface Tile {
     id: number;
     x: number;
@@ -19,14 +19,14 @@ export interface Player {
     id: string;
     name: string;
     color: number;
-    population: number;
     troops: number;
-    workers: number;
+    maxTroops: number;
+    troopGrowthRate: number;
     gold: number;
-    troopRatio: number;
     isEliminated: boolean;
     tileCount: number;
     alliances: string[];
+    isBot: boolean;
 }
 export interface GameState {
     tick: number;
