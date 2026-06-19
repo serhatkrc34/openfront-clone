@@ -6,11 +6,13 @@ import {
   BuildPayload,
   ProposeAlliancePayload,
   AllianceResponsePayload,
+  NukePayload,
   generateMap,
   tickGame,
   applyConquer,
   applyBuild,
   applyAlliance,
+  applyNuke,
   createPlayer,
 } from '@openfront/core';
 import { computeBotAction, addBot } from './botAI';
@@ -242,6 +244,23 @@ export class GameRoom {
       } else {
         this.state = result;
         this.broadcast({ type: 'GAME_STATE', payload: this.state });
+      }
+    }
+
+    if (msg.type === 'NUKE') {
+      const payload = msg.payload as NukePayload;
+      const result = applyNuke(this.state, playerId, payload);
+      if (!result.success) {
+        const ws = this.clients.get(playerId);
+        if (ws) this.sendToClient(ws, { type: 'ERROR', payload: { message: result.error } });
+      } else {
+        this.state = result.state;
+        if (result.intercepted) {
+          this.broadcast({ type: 'NUKE_EVENT', payload: { kind: 'intercepted', fromTileId: payload.siloTileId, toTileId: payload.targetTileId, interceptedAt: result.interceptedAt } });
+        } else {
+          this.broadcast({ type: 'NUKE_EVENT', payload: { kind: 'hit', fromTileId: payload.siloTileId, toTileId: payload.targetTileId } });
+        }
+        setTimeout(() => this.broadcast({ type: 'GAME_STATE', payload: this.state }), 2500);
       }
     }
   }

@@ -34,6 +34,10 @@ const tileTooltip        = document.getElementById('tile-tooltip')!;
 const attackIndicator    = document.getElementById('attack-indicator')!;
 const contextMenu        = document.getElementById('context-menu')!;
 const allianceNotif      = document.getElementById('alliance-notification')!;
+const buildPanel         = document.getElementById('build-panel')!;
+const modeHint           = document.getElementById('mode-hint')!;
+const nukeBtn            = document.getElementById('nuke-btn')!;
+const buildBtns          = document.querySelectorAll<HTMLButtonElement>('.bld-btn[data-type]');
 
 let statusTimeout: ReturnType<typeof setTimeout> | null = null;
 let gameStartTime: number | null = null;
@@ -113,6 +117,69 @@ function showTileTooltip(tile: Tile | null, state: GameState): void {
   tileTooltip.style.display = 'block';
 }
 
+// ─── Build & nuke mode ───────────────────────────────────────────────────────
+
+let buildMode: BuildingType | null = null;
+let nukePhase: 'idle' | 'select_silo' | 'select_target' = 'idle';
+let nukeSiloTileId: number | null = null;
+
+const BUILDING_COSTS_UI: Record<BuildingType, number> = {
+  city: 500, port: 300, sam: 800, silo: 1200, factory: 800,
+};
+
+function setModeHint(text: string, isNuke = false): void {
+  if (!text) {
+    modeHint.style.display = 'none';
+    return;
+  }
+  modeHint.textContent = `${text}  [ESC iptal]`;
+  modeHint.className = isNuke ? 'nuke-mode' : '';
+  modeHint.style.display = 'block';
+}
+
+function exitSpecialMode(): void {
+  buildMode = null;
+  nukePhase = 'idle';
+  nukeSiloTileId = null;
+  modeHint.style.display = 'none';
+  buildBtns.forEach(b => b.classList.remove('active'));
+  nukeBtn.classList.remove('active');
+}
+
+function enterBuildMode(type: BuildingType): void {
+  if (buildMode === type) { exitSpecialMode(); return; }
+  exitSpecialMode();
+  buildMode = type;
+  const nameMap: Record<BuildingType, string> = {
+    city: 'Şehir', port: 'Liman', sam: 'Hava Savunma', silo: 'Nükleer Silo', factory: 'Fabrika',
+  };
+  setModeHint(`${nameMap[type]} inşa et: Kendi toprağında bir kareye tıkla`);
+  document.getElementById(`btn-${type}`)?.classList.add('active');
+}
+
+function enterNukeMode(): void {
+  exitSpecialMode();
+  nukePhase = 'select_silo';
+  setModeHint('Silonuzu seçin: Nükleer silo karenize tıklayın', true);
+  nukeBtn.classList.add('active');
+}
+
+function updateBuildPanel(state: GameState | null, playerId: string | null): void {
+  if (!state || !playerId) return;
+  const player = state.players[playerId];
+  if (!player) return;
+  const gold = Math.floor(player.gold);
+  buildBtns.forEach(btn => {
+    const type = btn.dataset.type as BuildingType;
+    btn.disabled = gold < BUILDING_COSTS_UI[type];
+  });
+  // Enable nuke button only if player has a silo
+  const hasSilo = Object.values(state.buildings).some(
+    b => b.type === 'silo' && b.ownerId === playerId,
+  );
+  (nukeBtn as HTMLButtonElement).disabled = !hasSilo;
+}
+
 // ─── Context menu ─────────────────────────────────────────────────────────────
 
 function hideContextMenu(): void {
@@ -126,6 +193,7 @@ function showBuildMenu(tile: Tile, x: number, y: number, state: GameState, clien
   const items: { label: string; cost: number; type: BuildingType; disabled?: boolean }[] = [
     { label: '🏙 Şehir', cost: 500, type: 'city' },
     { label: '⚓ Liman', cost: 300, type: 'port' },
+    { label: '🏭 Fabrika', cost: 800, type: 'factory' },
     { label: '🚀 SAM', cost: 800, type: 'sam' },
     { label: '💣 Silo', cost: 1200, type: 'silo' },
   ];
@@ -390,6 +458,53 @@ async function main(): Promise<void> {
     const tile = currentState.tiles[tileId];
     if (!tile) return;
 
+    // ── Build mode ─────────────────────────────────────────────────────────
+    if (buildMode !== null) {
+      if (tile.owner !== myPlayerId) {
+        showStatus('Yalnızca kendi toprağına bina kurabilirsin.');
+        return;
+      }
+      if (currentState.buildings[tileId]) {
+        showStatus('Bu karede zaten bir bina var.');
+        return;
+      }
+      client.sendBuild(tileId, buildMode);
+      showStatus(`${buildMode} inşa edildi!`, false);
+      exitSpecialMode();
+      return;
+    }
+
+    // ── Nuke mode ──────────────────────────────────────────────────────────
+    if (nukePhase === 'select_silo') {
+      const bld = currentState.buildings[tileId];
+      if (!bld || bld.type !== 'silo' || bld.ownerId !== myPlayerId) {
+        showStatus('Kendi nükleer silonuzu seçin.');
+        return;
+      }
+      nukeSiloTileId = tileId;
+      nukePhase = 'select_target';
+      setModeHint('Hedef seçin: Herhangi bir kareye tıklayın', true);
+      return;
+    }
+
+    if (nukePhase === 'select_target') {
+      if (!canConquer(tile) && tile.type !== 'ocean' && tile.type !== 'lake') {
+        // allow any land tile as target
+      }
+      if (tile.owner && myPlayerId) {
+        const myPlayer = currentState.players[myPlayerId];
+        if (myPlayer?.alliances.includes(tile.owner)) {
+          showStatus('Müttefik toprağına nükleer atılamaz!');
+          return;
+        }
+      }
+      client.sendNuke(nukeSiloTileId!, tileId);
+      showStatus('Nükleer fırlatıldı!', false);
+      exitSpecialMode();
+      return;
+    }
+
+    // ── Normal click ───────────────────────────────────────────────────────
     // Click own tile → clear all attack targets
     if (tile.owner === myPlayerId) {
       attackTargets.clear();
@@ -441,6 +556,22 @@ async function main(): Promise<void> {
     }
   });
 
+  // ── Build panel buttons ─────────────────────────────────────────────────────
+
+  buildBtns.forEach(btn => {
+    btn.addEventListener('click', () => enterBuildMode(btn.dataset.type as BuildingType));
+  });
+
+  nukeBtn.addEventListener('click', () => {
+    if ((nukeBtn as HTMLButtonElement).disabled) return;
+    if (nukePhase !== 'idle') { exitSpecialMode(); return; }
+    enterNukeMode();
+  });
+
+  document.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Escape') exitSpecialMode();
+  });
+
   startAutoAttackLoop(client, renderer, () => currentState, () => myPlayerId);
 
   // ─── Name input + join flow ─────────────────────────────────────────────────
@@ -474,15 +605,17 @@ async function main(): Promise<void> {
     }
 
     connectingOverlay.style.display = 'none';
+    buildPanel.style.display = 'flex';
     renderer.setState(state, playerId);
     updateHUD(state, playerId);
     updateLeaderboard(state);
+    updateBuildPanel(state, playerId);
 
     gameStartTime = Date.now();
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(updateTimer, 1000);
 
-    showStatus('Bağlandı! Düşman toprağına tıkla → saldır. Sağ tıkla → inşa et.', false);
+    showStatus('Bağlandı! Düşman toprağına tıkla → saldır. Sol panel → bina kur.', false);
   });
 
   client.onState((state) => {
@@ -491,6 +624,7 @@ async function main(): Promise<void> {
     renderer.updateState(state);
     updateHUD(state, myPlayerId);
     updateLeaderboard(state);
+    updateBuildPanel(state, myPlayerId);
 
     if (state.phase === 'ended') {
       if (timerInterval) clearInterval(timerInterval);
@@ -519,6 +653,7 @@ async function main(): Promise<void> {
     updateHUD(currentState, myPlayerId);
     updateLeaderboard(currentState);
     renderer.updatePlayers(players);
+    updateBuildPanel(currentState, myPlayerId);
   });
 
   client.onServerError((msg) => {
@@ -529,10 +664,21 @@ async function main(): Promise<void> {
     showAllianceNotification(fromId, fromName, fromColor, client);
   });
 
+  client.onNukeEvent((kind, fromTileId, toTileId, interceptedAt) => {
+    renderer.triggerNukeAnim(fromTileId, toTileId, kind === 'intercepted', interceptedAt);
+    if (kind === 'intercepted') {
+      showStatus('Nükleer füze SAM tarafından düşürüldü!', false);
+    } else {
+      showStatus('NÜKLEER PATLAMA!', true);
+    }
+  });
+
   client.onDisconnect(() => {
     attackTargets.clear();
+    exitSpecialMode();
     if (renderer) syncAttackUI(renderer, null);
     if (timerInterval) clearInterval(timerInterval);
+    buildPanel.style.display = 'none';
     connectingOverlay.style.display = 'flex';
     connectSpinner.style.display = 'block';
     connectStatus.style.display = 'block';

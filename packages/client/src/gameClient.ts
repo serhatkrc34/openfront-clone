@@ -6,6 +6,7 @@ type ErrorCallback = (msg: string) => void;
 type ConnectedCallback = (playerId: string, state: GameState) => void;
 type DisconnectedCallback = () => void;
 type AllianceProposalCallback = (fromPlayerId: string, fromName: string, fromColor: number) => void;
+type NukeEventCallback = (kind: 'hit' | 'intercepted', fromTileId: number, toTileId: number, interceptedAt?: number) => void;
 
 export class GameClient {
   private ws: WebSocket | null = null;
@@ -18,6 +19,7 @@ export class GameClient {
   private onConnected: ConnectedCallback | null = null;
   private onDisconnected: DisconnectedCallback | null = null;
   private onAllianceProposalCb: AllianceProposalCallback | null = null;
+  private onNukeEventCb: NukeEventCallback | null = null;
 
   connect(url: string): void {
     this.ws = new WebSocket(url);
@@ -80,6 +82,11 @@ export class GameClient {
         this.onAllianceProposalCb?.(payload.fromPlayerId, payload.fromName, payload.fromColor);
         break;
       }
+      case 'NUKE_EVENT': {
+        const p = msg.payload as { kind: 'hit' | 'intercepted'; fromTileId: number; toTileId: number; interceptedAt?: number };
+        this.onNukeEventCb?.(p.kind, p.fromTileId, p.toTileId, p.interceptedAt);
+        break;
+      }
     }
   }
 
@@ -113,6 +120,11 @@ export class GameClient {
     this.ws.send(JSON.stringify({ type: 'ALLIANCE_RESPONSE', payload: { fromPlayerId, accept } }));
   }
 
+  sendNuke(siloTileId: number, targetTileId: number): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type: 'NUKE', payload: { siloTileId, targetTileId } }));
+  }
+
   getState(): GameState | null { return this.state; }
   getPlayerId(): string | null { return this.playerId; }
 
@@ -122,4 +134,5 @@ export class GameClient {
   onConnect(cb: ConnectedCallback): void { this.onConnected = cb; }
   onDisconnect(cb: DisconnectedCallback): void { this.onDisconnected = cb; }
   onAllianceProposal(cb: AllianceProposalCallback): void { this.onAllianceProposalCb = cb; }
+  onNukeEvent(cb: NukeEventCallback): void { this.onNukeEventCb = cb; }
 }

@@ -1,6 +1,6 @@
 export type TileType = 'plains' | 'mountain' | 'highland' | 'ocean' | 'lake';
 export type OwnerId = string | null;
-export type BuildingType = 'city' | 'port' | 'sam' | 'silo';
+export type BuildingType = 'city' | 'port' | 'sam' | 'silo' | 'factory';
 
 export interface Tile {
   id: number;
@@ -54,7 +54,9 @@ export type MessageType =
   | 'BUILD'
   | 'PROPOSE_ALLIANCE'
   | 'ALLIANCE_PROPOSAL'
-  | 'ALLIANCE_RESPONSE';
+  | 'ALLIANCE_RESPONSE'
+  | 'NUKE'
+  | 'NUKE_EVENT';
 
 export interface GameMessage {
   type: MessageType;
@@ -79,3 +81,13 @@ export interface AllianceResponsePayload {
   fromPlayerId: string;
   accept: boolean;
 }
+
+export interface NukePayload {
+  siloTileId: number;
+  targetTileId: number;
+}
+
+export type NukeResult =
+  | { success: false; error: string }
+  | { success: true; intercepted: false; state: GameState }
+  | { success: true; intercepted: true; state: GameState; interceptedAt: number };

@@ -427,6 +427,132 @@
     }
 
     /* ════════════════════════════
+       Build panel — bottom left
+    ════════════════════════════ */
+    #build-panel {
+      position: absolute;
+      bottom: 88px;
+      left: 14px;
+      display: none;
+      flex-direction: column;
+      gap: 5px;
+      pointer-events: all;
+      z-index: 10;
+    }
+
+    #build-panel-label {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #3a5278;
+      text-align: center;
+    }
+
+    .bld-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      background: rgba(5, 12, 28, 0.92);
+      border: 1px solid rgba(40, 90, 200, 0.3);
+      border-radius: 6px;
+      color: #c8d8f0;
+      font-size: 11px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+      backdrop-filter: blur(8px);
+      white-space: nowrap;
+      min-width: 140px;
+    }
+
+    .bld-btn:hover:not(:disabled) {
+      background: rgba(30, 60, 120, 0.5);
+      border-color: rgba(68, 136, 255, 0.5);
+      box-shadow: 0 0 8px rgba(68, 136, 255, 0.2);
+    }
+
+    .bld-btn.active {
+      border-color: #44bbff;
+      background: rgba(0, 80, 160, 0.35);
+      box-shadow: 0 0 12px rgba(68, 187, 255, 0.35);
+    }
+
+    .bld-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    .bld-btn-icon { font-size: 14px; }
+    .bld-btn-name { flex: 1; font-weight: 600; }
+    .bld-btn-cost { font-size: 10px; color: #c8b040; font-weight: 700; }
+
+    #nuke-btn {
+      margin-top: 3px;
+      background: rgba(120, 10, 10, 0.5);
+      border-color: rgba(255, 60, 60, 0.4);
+      color: #ff8888;
+    }
+
+    #nuke-btn:hover:not(:disabled) {
+      background: rgba(180, 20, 20, 0.6);
+      border-color: #ff4444;
+      box-shadow: 0 0 12px rgba(255, 60, 60, 0.4);
+    }
+
+    #nuke-btn.active {
+      border-color: #ff3333;
+      background: rgba(200, 0, 0, 0.4);
+      box-shadow: 0 0 16px rgba(255, 50, 50, 0.5);
+      animation: nuke-pulse 0.8s ease-in-out infinite;
+    }
+
+    @keyframes nuke-pulse {
+      0%, 100% { box-shadow: 0 0 10px rgba(255, 50, 50, 0.4); }
+      50% { box-shadow: 0 0 20px rgba(255, 80, 0, 0.7); }
+    }
+
+    /* ════════════════════════════
+       Mode hint bar
+    ════════════════════════════ */
+    #mode-hint {
+      position: absolute;
+      top: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(5, 12, 28, 0.92);
+      border: 1px solid rgba(68, 136, 255, 0.4);
+      border-radius: 6px;
+      padding: 6px 18px;
+      font-size: 12px;
+      color: #88ccff;
+      font-weight: 600;
+      display: none;
+      pointer-events: none;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      backdrop-filter: blur(8px);
+      animation: hint-glow 1.5s ease-in-out infinite;
+    }
+
+    @keyframes hint-glow {
+      0%, 100% { border-color: rgba(68, 136, 255, 0.4); }
+      50% { border-color: rgba(68, 136, 255, 0.9); box-shadow: 0 0 10px rgba(68, 136, 255, 0.3); }
+    }
+
+    #mode-hint.nuke-mode {
+      border-color: rgba(255, 60, 60, 0.5);
+      color: #ff9988;
+      animation: nuke-hint-glow 0.8s ease-in-out infinite;
+    }
+
+    @keyframes nuke-hint-glow {
+      0%, 100% { border-color: rgba(255, 60, 60, 0.4); box-shadow: none; }
+      50% { border-color: #ff4444; box-shadow: 0 0 12px rgba(255, 60, 0, 0.4); }
+    }
+
+    /* ════════════════════════════
        Building legend — bottom right (above minimap)
     ════════════════════════════ */
     #building-legend {
@@ -641,8 +767,41 @@
     <div id="building-legend">
       <div class="bld-row"><div class="bld-dot" style="background:#ffcc00"></div> Şehir (500g)</div>
       <div class="bld-row"><div class="bld-dot" style="background:#00aaff"></div> Liman (300g)</div>
+      <div class="bld-row"><div class="bld-dot" style="background:#dd6600"></div> Fabrika (800g)</div>
       <div class="bld-row"><div class="bld-dot" style="background:#ff3333"></div> SAM (800g)</div>
       <div class="bld-row"><div class="bld-dot" style="background:#aaaaaa"></div> Silo (1200g)</div>
+    </div>
+
+    <!-- Mode hint bar -->
+    <div id="mode-hint"></div>
+
+    <!-- Build panel — bottom left -->
+    <div id="build-panel">
+      <div id="build-panel-label">YAPI KUR</div>
+      <button class="bld-btn" id="btn-city"    data-type="city">
+        <span class="bld-btn-icon">🏙</span>
+        <span class="bld-btn-name">Şehir</span>
+        <span class="bld-btn-cost">500g</span>
+      </button>
+      <button class="bld-btn" id="btn-factory" data-type="factory">
+        <span class="bld-btn-icon">🏭</span>
+        <span class="bld-btn-name">Fabrika</span>
+        <span class="bld-btn-cost">800g</span>
+      </button>
+      <button class="bld-btn" id="btn-sam"     data-type="sam">
+        <span class="bld-btn-icon">🚀</span>
+        <span class="bld-btn-name">Hava Savunma</span>
+        <span class="bld-btn-cost">800g</span>
+      </button>
+      <button class="bld-btn" id="btn-silo"    data-type="silo">
+        <span class="bld-btn-icon">💣</span>
+        <span class="bld-btn-name">Nükleer Silo</span>
+        <span class="bld-btn-cost">1200g</span>
+      </button>
+      <button class="bld-btn" id="nuke-btn">
+        <span class="bld-btn-icon">☢</span>
+        <span class="bld-btn-name">Nükleer Fırlat</span>
+      </button>
     </div>
 
     <!-- Conquest controls — bottom center -->

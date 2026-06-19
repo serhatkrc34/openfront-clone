@@ -23,10 +23,11 @@ const ELEVATION_BASE: Record<TileType, number> = {
 };
 
 const BUILDING_COLORS: Record<Building['type'], number> = {
-  city:  0xffcc00,
-  port:  0x00aaff,
-  sam:   0xff3333,
-  silo:  0xaaaaaa,
+  city:    0xffcc00,
+  port:    0x00aaff,
+  sam:     0xff3333,
+  silo:    0xaaaaaa,
+  factory: 0xdd6600,
 };
 
 function hexToRgb(hex: number): { r: number; g: number; b: number } {
@@ -63,10 +64,20 @@ function tileNoise(id: number): number {
 interface FlashEntry { tileId: number; startTime: number; }
 const FLASH_DURATION = 500;
 
+interface NukeAnim {
+  fromX: number; fromY: number;
+  toX: number; toY: number;
+  startTime: number;
+  duration: number;
+  intercepted: boolean;
+  intX?: number; intY?: number;
+}
+
 export class Renderer {
   private app: Application;
   private mapContainer: Container;
   private mapGfx: Graphics;
+  private animGfx: Graphics;
   private minimapGfx: Graphics;
   private labelsContainer: Container;
 
@@ -97,6 +108,9 @@ export class Renderer {
   private flashEntries: FlashEntry[] = [];
   private animating = false;
 
+  private nukeAnims: NukeAnim[] = [];
+  private alwaysAnimating = false;
+
   constructor(app: Application) {
     this.app = app;
 
@@ -105,6 +119,9 @@ export class Renderer {
 
     this.mapGfx = new Graphics();
     this.mapContainer.addChild(this.mapGfx);
+
+    this.animGfx = new Graphics();
+    this.mapContainer.addChild(this.animGfx);
 
     this.labelsContainer = new Container();
     this.labelsContainer.zIndex = 5;
@@ -246,6 +263,171 @@ export class Renderer {
     requestAnimationFrame(tick);
   }
 
+  // ── Nuke & building animations ────────────────────────────────────────────
+
+  triggerNukeAnim(fromTileId: number, toTileId: number, intercepted: boolean, interceptAtId?: number): void {
+    if (!this.state) return;
+    const { tiles } = this.state;
+    const from = tiles[fromTileId], to = tiles[toTileId];
+    if (!from || !to) return;
+    const ts = TILE_SIZE;
+    const anim: NukeAnim = {
+      fromX: from.x * ts + ts / 2, fromY: from.y * ts + ts / 2,
+      toX: to.x * ts + ts / 2,   toY: to.y * ts + ts / 2,
+      startTime: performance.now(), duration: 2200,
+      intercepted,
+    };
+    if (intercepted && interceptAtId !== undefined) {
+      const intTile = tiles[interceptAtId];
+      if (intTile) { anim.intX = intTile.x * ts + ts / 2; anim.intY = intTile.y * ts + ts / 2; }
+    }
+    this.nukeAnims.push(anim);
+    this.startAlwaysAnimLoop();
+  }
+
+  private startAlwaysAnimLoop(): void {
+    if (this.alwaysAnimating) return;
+    this.alwaysAnimating = true;
+    const loop = () => {
+      if (!this.alwaysAnimating) return;
+      this.renderAnimations(performance.now());
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }
+
+  private renderAnimations(now: number): void {
+    if (!this.state) return;
+    const g = this.animGfx;
+    g.clear();
+    const { tiles, buildings } = this.state;
+    const ts = TILE_SIZE;
+
+    // Building animations
+    for (const building of Object.values(buildings)) {
+      const tile = tiles[building.tileId];
+      if (!tile) continue;
+      const cx = tile.x * ts + ts / 2;
+      const cy = tile.y * ts + ts / 2;
+
+      switch (building.type) {
+        case 'city': {
+          const pulse = 0.5 + 0.5 * Math.sin(now / 700);
+          g.circle(cx, cy, ts * 1.1 + pulse * ts * 0.5);
+          g.fill({ color: 0xffcc00, alpha: 0.08 + pulse * 0.06 });
+          break;
+        }
+        case 'factory': {
+          for (let i = 0; i < 3; i++) {
+            const t = ((now / 800 + i * 0.333) % 1);
+            const puffX = cx + (i - 1) * ts * 0.4;
+            const puffY = cy - t * ts * 2;
+            g.circle(puffX, puffY, (1 - t) * ts * 0.45);
+            g.fill({ color: 0x999999, alpha: (1 - t) * 0.45 });
+          }
+          break;
+        }
+        case 'sam': {
+          const angle = (now / 1500) % (Math.PI * 2);
+          const r = ts * 2.5;
+          // Radar sweep
+          g.moveTo(cx, cy);
+          g.lineTo(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r);
+          g.stroke({ color: 0xff3333, width: 0.6, alpha: 0.8 });
+          // Range ring
+          g.circle(cx, cy, r);
+          g.stroke({ color: 0xff3333, width: 0.4, alpha: 0.25 });
+          break;
+        }
+        case 'port': {
+          const rippleT = (now / 1200) % 1;
+          g.circle(cx, cy, ts + rippleT * ts * 2);
+          g.stroke({ color: 0x00aaff, width: 0.5, alpha: (1 - rippleT) * 0.5 });
+          break;
+        }
+        case 'silo': {
+          const pulse = 0.5 + 0.5 * Math.sin(now / 500);
+          g.circle(cx, cy, ts * 0.6);
+          g.stroke({ color: 0xdddddd, width: 0.6, alpha: pulse * 0.6 });
+          break;
+        }
+      }
+    }
+
+    // Nuke animations
+    const alive: NukeAnim[] = [];
+    for (const anim of this.nukeAnims) {
+      const elapsed = now - anim.startTime;
+      const t = Math.min(1, elapsed / anim.duration);
+
+      if (anim.intercepted && anim.intX !== undefined && anim.intY !== undefined) {
+        // Fly to intercept point (halfway through time)
+        const intT = 0.5;
+        const ft = Math.min(t / intT, 1);
+        const acx = anim.fromX + (anim.intX - anim.fromX) * ft;
+        const acy = anim.fromY + (anim.intY - anim.fromY) * ft;
+        // Missile dot
+        g.circle(acx, acy, 1.5);
+        g.fill({ color: 0xffffff });
+        // Trail
+        const tx0 = anim.fromX + (anim.intX - anim.fromX) * Math.max(0, ft - 0.15);
+        const ty0 = anim.fromY + (anim.intY - anim.fromY) * Math.max(0, ft - 0.15);
+        g.moveTo(tx0, ty0); g.lineTo(acx, acy);
+        g.stroke({ color: 0xffffff, width: 1, alpha: 0.6 });
+
+        if (ft >= 1) {
+          // Interception explosion
+          const et = (t - intT) / (1 - intT);
+          const er = et * ts * 4;
+          g.circle(anim.intX, anim.intY, er);
+          g.fill({ color: 0x44ff44, alpha: (1 - et) * 0.7 });
+          g.circle(anim.intX, anim.intY, er * 0.5);
+          g.fill({ color: 0xffffff, alpha: (1 - et) * 0.5 });
+        }
+      } else {
+        // Arc trajectory via quadratic bezier control point above midpoint
+        const midX = (anim.fromX + anim.toX) / 2;
+        const midY = (anim.fromY + anim.toY) / 2 - Math.max(20, Math.hypot(anim.toX - anim.fromX, anim.toY - anim.fromY) * 0.4);
+        const bt = t;
+        const acx = (1-bt)*(1-bt)*anim.fromX + 2*(1-bt)*bt*midX + bt*bt*anim.toX;
+        const acy = (1-bt)*(1-bt)*anim.fromY + 2*(1-bt)*bt*midY + bt*bt*anim.toY;
+        // Trail (a few points back)
+        const bt2 = Math.max(0, bt - 0.08);
+        const tx0 = (1-bt2)*(1-bt2)*anim.fromX + 2*(1-bt2)*bt2*midX + bt2*bt2*anim.toX;
+        const ty0 = (1-bt2)*(1-bt2)*anim.fromY + 2*(1-bt2)*bt2*midY + bt2*bt2*anim.toY;
+        g.moveTo(tx0, ty0); g.lineTo(acx, acy);
+        g.stroke({ color: 0xff8800, width: 1.5, alpha: 0.8 });
+        // Warhead
+        g.circle(acx, acy, 2.5);
+        g.fill({ color: 0xff4400 });
+        g.circle(acx, acy, 2.5);
+        g.stroke({ color: 0xffcc00, width: 0.8 });
+
+        if (t >= 1) {
+          // Impact explosion — expanding rings
+          const et = Math.min(1, (elapsed - anim.duration) / 800);
+          g.circle(anim.toX, anim.toY, et * ts * 12);
+          g.fill({ color: 0xff4400, alpha: (1 - et) * 0.6 });
+          g.circle(anim.toX, anim.toY, et * ts * 8);
+          g.fill({ color: 0xffcc00, alpha: (1 - et) * 0.8 });
+          g.circle(anim.toX, anim.toY, et * ts * 4);
+          g.fill({ color: 0xffffff, alpha: (1 - et) * 0.9 });
+          if (et >= 1) { continue; } // done
+        }
+      }
+
+      if (t < 1 || (anim.intercepted ? t < 1 : elapsed < anim.duration + 800)) {
+        alive.push(anim);
+      }
+    }
+    this.nukeAnims = alive;
+
+    // Stop loop if nothing needs continuous animation
+    if (Object.keys(buildings).length === 0 && this.nukeAnims.length === 0) {
+      this.alwaysAnimating = false;
+    }
+  }
+
   // ── Labels ────────────────────────────────────────────────────────────────
 
   private fmtN(n: number): string {
@@ -343,6 +525,7 @@ export class Renderer {
     this.renderMap();
     this.updateLabelPositions();
     this.renderMinimap();
+    if (Object.keys(state.buildings).length > 0) this.startAlwaysAnimLoop();
   }
 
   updateState(state: GameState): void {
@@ -355,6 +538,7 @@ export class Renderer {
     this.updateLabelPositions();
     this.renderMinimap();
     if (this.flashEntries.length > 0) this.startAnimationLoop();
+    if (Object.keys(state.buildings).length > 0) this.startAlwaysAnimLoop();
   }
 
   updatePlayers(players: GameState['players']): void {
