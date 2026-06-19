@@ -1,7 +1,7 @@
 import { Application, Graphics, Container, Text } from 'pixi.js';
 import { GameState, Tile, TileType, Building, getAdjacentTileIds, canConquer } from '@openfront/core';
 
-const TILE_SIZE = 4;
+const TILE_SIZE = 2;
 
 const TERRAIN_COLORS: Record<TileType, number> = {
   ocean:    0x0c1e3c,
@@ -329,8 +329,12 @@ export class Renderer {
     if (isFirst) {
       const mapPxW = state.mapWidth * TILE_SIZE;
       const mapPxH = state.mapHeight * TILE_SIZE;
-      this.cameraX = (this.app.screen.width  - mapPxW) / 2;
-      this.cameraY = (this.app.screen.height - mapPxH) / 2;
+      // Auto-fit: scale so the whole map is visible with a small margin
+      const scaleX = this.app.screen.width  / mapPxW;
+      const scaleY = this.app.screen.height / mapPxH;
+      this.zoom = Math.min(scaleX, scaleY) * 0.92;
+      this.cameraX = (this.app.screen.width  - mapPxW * this.zoom) / 2;
+      this.cameraY = (this.app.screen.height - mapPxH * this.zoom) / 2;
       this.applyCamera();
     }
 
@@ -447,20 +451,19 @@ export class Renderer {
       // Allied tiles get teal border, otherwise bright player color border
       const isAllied = myId && p.alliances?.includes(myId);
       const borderColor = isAllied ? 0x44ffcc : blendColors(p.color, 0xffffff, 0.6);
-      const borderWidth = isAllied ? 1.5 : 1.5;
 
       if (tile.x + 1 < mapWidth) {
         const right = tiles[tile.y * mapWidth + (tile.x + 1)];
         if (right && right.owner !== tile.owner) {
           g.moveTo(px + ts, py).lineTo(px + ts, py + ts);
-          g.stroke({ color: borderColor, width: borderWidth });
+          g.stroke({ color: borderColor, width: 1 });
         }
       }
       if (tile.y + 1 < mapHeight) {
         const bottom = tiles[(tile.y + 1) * mapWidth + tile.x];
         if (bottom && bottom.owner !== tile.owner) {
           g.moveTo(px, py + ts).lineTo(px + ts, py + ts);
-          g.stroke({ color: borderColor, width: borderWidth });
+          g.stroke({ color: borderColor, width: 1 });
         }
       }
     }
@@ -474,14 +477,14 @@ export class Renderer {
         const r = tiles[tile.y * mapWidth + (tile.x + 1)];
         if (r && WATER_TYPES.has(r.type)) {
           g.moveTo(px + ts, py).lineTo(px + ts, py + ts);
-          g.stroke({ color: 0x4488cc, width: 1, alpha: 0.65 });
+          g.stroke({ color: 0x4488cc, width: 0.5, alpha: 0.65 });
         }
       }
       if (tile.y + 1 < mapHeight) {
         const b = tiles[(tile.y + 1) * mapWidth + tile.x];
         if (b && WATER_TYPES.has(b.type)) {
           g.moveTo(px, py + ts).lineTo(px + ts, py + ts);
-          g.stroke({ color: 0x4488cc, width: 1, alpha: 0.65 });
+          g.stroke({ color: 0x4488cc, width: 0.5, alpha: 0.65 });
         }
       }
     }
@@ -494,7 +497,7 @@ export class Renderer {
       const py = tile.y * ts;
       const isHov = tile.id === this.hoveredTileId;
       g.rect(px, py, ts, ts);
-      g.stroke({ color: isHov ? 0x44ff66 : 0x33cc55, width: isHov ? 1.5 : 1, alpha: isHov ? 1 : 0.75 });
+      g.stroke({ color: isHov ? 0x44ff66 : 0x33cc55, width: isHov ? 1 : 0.5, alpha: isHov ? 1 : 0.75 });
     }
 
     // ── Pass 5: attack target territories (orange overlay on enemy tiles) ──
@@ -524,7 +527,7 @@ export class Renderer {
           else if (nx < tile.x) { g.moveTo(px, py); g.lineTo(px, py + ts); }
           else if (ny > tile.y) { g.moveTo(px, py + ts); g.lineTo(px + ts, py + ts); }
           else { g.moveTo(px, py); g.lineTo(px + ts, py); }
-          g.stroke({ color: 0xff7700, width: 1.5, alpha: 0.9 });
+          g.stroke({ color: 0xff7700, width: 1, alpha: 0.9 });
         }
       }
     }
