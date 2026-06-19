@@ -38,7 +38,12 @@ export interface GameState {
     winnerId: OwnerId;
     buildings: Record<number, Building>;
 }
-export type MessageType = 'GAME_STATE' | 'PLAYER_JOIN' | 'PLAYER_LEAVE' | 'CONQUER' | 'TICK' | 'ERROR' | 'SET_NAME' | 'BUILD' | 'PROPOSE_ALLIANCE' | 'ALLIANCE_PROPOSAL' | 'ALLIANCE_RESPONSE' | 'NUKE' | 'NUKE_EVENT';
+export type MessageType = 'GAME_STATE' | 'PLAYER_JOIN' | 'PLAYER_LEAVE' | 'CONQUER' | 'TICK' | 'ERROR' | 'SET_NAME' | 'BUILD' | 'PROPOSE_ALLIANCE' | 'ALLIANCE_PROPOSAL' | 'ALLIANCE_RESPONSE' | 'NUKE' | 'NUKE_EVENT' | 'PARTIAL_UPDATE';
+export interface PartialUpdatePayload {
+    changedTiles: Tile[];
+    players: Record<string, Player>;
+    buildings: Record<number, Building>;
+}
 export interface GameMessage {
     type: MessageType;
     payload: unknown;

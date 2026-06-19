@@ -1,9 +1,11 @@
 import { WebSocket } from 'ws';
 import {
   GameState,
+  Tile,
   GameMessage,
   ConquerPayload,
   BuildPayload,
+  PartialUpdatePayload,
   ProposeAlliancePayload,
   AllianceResponsePayload,
   NukePayload,
@@ -35,6 +37,7 @@ export class GameRoom {
   private playerCount = 0;
   private botIds: string[] = [];
   private pendingAlliances: PendingAlliance[] = [];
+  private prevTileOwners: (string | null)[] = [];
 
   constructor(id: string, mapWidth: number, mapHeight: number) {
     this.id = id;
@@ -53,6 +56,7 @@ export class GameRoom {
   start(): void {
     this.initBots();
     this.state = { ...this.state, phase: 'playing' };
+    this.prevTileOwners = this.state.tiles.map(t => t.owner);
     this.tickInterval = setInterval(() => this.tick(), TICK_MS);
     console.log(`[Room ${this.id}] Game started — ${BOT_COUNT} bots added`);
   }
@@ -137,7 +141,7 @@ export class GameRoom {
         const players = { ...this.state.players };
         players[playerId] = { ...players[playerId], name };
         this.state = { ...this.state, players };
-        this.broadcast({ type: 'GAME_STATE', payload: this.state });
+        this.broadcast({ type: 'TICK', payload: { tick: this.state.tick, players: this.state.players } });
       }
       return;
     }
@@ -207,7 +211,7 @@ export class GameRoom {
 
       if (payload.accept) {
         this.state = applyAlliance(this.state, fromId, playerId);
-        this.broadcast({ type: 'GAME_STATE', payload: this.state });
+        this.broadcast({ type: 'TICK', payload: { tick: this.state.tick, players: this.state.players } });
       } else {
         const fromWs = this.clients.get(fromId);
         const declinerName = this.state.players[playerId]?.name ?? 'Oyuncu';
@@ -231,7 +235,12 @@ export class GameRoom {
         if (ws) this.sendToClient(ws, { type: 'ERROR', payload: { message: result.error } });
       } else {
         this.state = result;
-        this.broadcast({ type: 'GAME_STATE', payload: this.state });
+        const partial: PartialUpdatePayload = {
+          changedTiles: [this.state.tiles[payload.tileId]],
+          players: this.state.players,
+          buildings: this.state.buildings,
+        };
+        this.broadcast({ type: 'PARTIAL_UPDATE', payload: partial });
       }
     }
 
@@ -243,7 +252,12 @@ export class GameRoom {
         if (ws) this.sendToClient(ws, { type: 'ERROR', payload: { message: result.error } });
       } else {
         this.state = result;
-        this.broadcast({ type: 'GAME_STATE', payload: this.state });
+        const partial: PartialUpdatePayload = {
+          changedTiles: [],
+          players: this.state.players,
+          buildings: this.state.buildings,
+        };
+        this.broadcast({ type: 'PARTIAL_UPDATE', payload: partial });
       }
     }
 
@@ -290,8 +304,28 @@ export class GameRoom {
       }
     }
 
-    if (this.state.tick % 10 === 0) {
+    // Full resync every 300 ticks (30s); partial for bot tile changes every 10 ticks
+    if (this.state.tick % 300 === 0) {
       this.broadcast({ type: 'GAME_STATE', payload: this.state });
+      this.prevTileOwners = this.state.tiles.map(t => t.owner);
+    } else if (this.state.tick % 10 === 0) {
+      const changedTiles: Tile[] = [];
+      for (let i = 0; i < this.state.tiles.length; i++) {
+        if (this.state.tiles[i].owner !== this.prevTileOwners[i]) {
+          changedTiles.push(this.state.tiles[i]);
+        }
+      }
+      if (changedTiles.length > 0) {
+        const partial: PartialUpdatePayload = {
+          changedTiles,
+          players: this.state.players,
+          buildings: this.state.buildings,
+        };
+        this.broadcast({ type: 'PARTIAL_UPDATE', payload: partial });
+        this.prevTileOwners = this.state.tiles.map(t => t.owner);
+      } else {
+        this.broadcast({ type: 'TICK', payload: { tick: this.state.tick, players: this.state.players } });
+      }
     } else {
       this.broadcast({ type: 'TICK', payload: { tick: this.state.tick, players: this.state.players } });
     }

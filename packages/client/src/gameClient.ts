@@ -1,4 +1,4 @@
-import { GameState, GameMessage, ConquerPayload, BuildPayload, BuildingType } from '@openfront/core';
+import { GameState, GameMessage, ConquerPayload, BuildPayload, BuildingType, PartialUpdatePayload } from '@openfront/core';
 
 type StateCallback = (state: GameState) => void;
 type TickCallback = (tick: number, players: GameState['players']) => void;
@@ -85,6 +85,18 @@ export class GameClient {
       case 'NUKE_EVENT': {
         const p = msg.payload as { kind: 'hit' | 'intercepted'; fromTileId: number; toTileId: number; interceptedAt?: number };
         this.onNukeEventCb?.(p.kind, p.fromTileId, p.toTileId, p.interceptedAt);
+        break;
+      }
+      case 'PARTIAL_UPDATE': {
+        const p = msg.payload as PartialUpdatePayload;
+        if (this.state) {
+          const newTiles = [...this.state.tiles];
+          for (const t of p.changedTiles) {
+            newTiles[t.id] = t;
+          }
+          this.state = { ...this.state, tiles: newTiles, players: p.players, buildings: p.buildings };
+          this.onStateUpdate?.(this.state);
+        }
         break;
       }
     }

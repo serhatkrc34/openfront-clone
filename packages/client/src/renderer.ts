@@ -78,6 +78,7 @@ export class Renderer {
   private app: Application;
   private mapContainer: Container;
   private mapGfx: Graphics;
+  private hoverGfx: Graphics;
   private animGfx: Graphics;
   private minimapGfx: Graphics;
   private labelsContainer: Container;
@@ -120,6 +121,9 @@ export class Renderer {
 
     this.mapGfx = new Graphics();
     this.mapContainer.addChild(this.mapGfx);
+
+    this.hoverGfx = new Graphics();
+    this.mapContainer.addChild(this.hoverGfx);
 
     this.animGfx = new Graphics();
     this.mapContainer.addChild(this.animGfx);
@@ -180,7 +184,7 @@ export class Renderer {
         this.hoveredTileId = tileId;
         const tile = tileId !== null && this.state ? this.state.tiles[tileId] : null;
         this.onTileHoverCb?.(tile ?? null);
-        this.renderMap();
+        this.renderHover();
       }
     });
 
@@ -258,6 +262,7 @@ export class Renderer {
       const now = performance.now();
       this.flashEntries = this.flashEntries.filter(f => now - f.startTime < FLASH_DURATION);
       this.renderMap();
+      this.renderHover();
       if (this.flashEntries.length > 0) requestAnimationFrame(tick);
       else this.animating = false;
     };
@@ -537,6 +542,7 @@ export class Renderer {
     this.updateConquerableTiles();
     this.computeCentroids();
     this.renderMap();
+    this.renderHover();
     this.updateLabelPositions();
     this.renderMinimap();
     if (Object.keys(state.buildings).length > 0) this.startAlwaysAnimLoop();
@@ -549,6 +555,7 @@ export class Renderer {
     this.updateConquerableTiles();
     this.computeCentroids();
     this.renderMap();
+    this.renderHover();
     this.updateLabelPositions();
     this.renderMinimap();
     if (this.flashEntries.length > 0) this.startAnimationLoop();
@@ -564,11 +571,13 @@ export class Renderer {
   setAttackTargetIds(ids: number[]): void {
     this.attackTargetIds = new Set(ids);
     this.renderMap();
+    this.renderHover();
   }
 
   clearAttackTargets(): void {
     this.attackTargetIds.clear();
     this.renderMap();
+    this.renderHover();
   }
 
   // ── Core tile color logic ─────────────────────────────────────────────────
@@ -617,14 +626,6 @@ export class Renderer {
       let fill = this.baseTileColor(tile, players);
       const px = tile.x * ts;
       const py = tile.y * ts;
-
-      if (tile.id === this.hoveredTileId) {
-        if (this.conquerableTiles.has(tile.id)) {
-          fill = blendColors(fill, 0x66ff88, 0.5);
-        } else if (canConquer(tile)) {
-          fill = blendColors(fill, 0xffffff, 0.20);
-        }
-      }
 
       g.rect(px, py, ts, ts);
       g.fill({ color: fill });
@@ -685,9 +686,8 @@ export class Renderer {
       if (!tile) continue;
       const px = tile.x * ts;
       const py = tile.y * ts;
-      const isHov = tile.id === this.hoveredTileId;
       g.rect(px, py, ts, ts);
-      g.stroke({ color: isHov ? 0x44ff66 : 0x33cc55, width: isHov ? 1 : 0.5, alpha: isHov ? 1 : 0.75 });
+      g.stroke({ color: 0x33cc55, width: 0.5, alpha: 0.75 });
     }
 
     // ── Pass 5: attack target territories (orange overlay on enemy tiles) ──
@@ -797,8 +797,27 @@ export class Renderer {
     g.stroke({ color: 0xffffff, width: 1, alpha: 0.6 });
   }
 
+  private renderHover(): void {
+    this.hoverGfx.clear();
+    if (this.hoveredTileId === null || !this.state) return;
+    const tile = this.state.tiles[this.hoveredTileId];
+    if (!tile || !canConquer(tile)) return;
+    const ts = TILE_SIZE;
+    const px = tile.x * ts;
+    const py = tile.y * ts;
+    if (this.conquerableTiles.has(this.hoveredTileId)) {
+      this.hoverGfx.rect(px, py, ts, ts);
+      this.hoverGfx.fill({ color: 0x66ff88, alpha: 0.5 });
+      this.hoverGfx.rect(px, py, ts, ts);
+      this.hoverGfx.stroke({ color: 0x44ff66, width: 1 });
+    } else {
+      this.hoverGfx.rect(px, py, ts, ts);
+      this.hoverGfx.fill({ color: 0xffffff, alpha: 0.2 });
+    }
+  }
+
   setOnTileClick(cb: (tileId: number) => void): void { this.onTileClickCb = cb; }
   setOnTileHover(cb: (tile: Tile | null) => void): void { this.onTileHoverCb = cb; }
   setOnTileRightClick(cb: (tileId: number, x: number, y: number) => void): void { this.onTileRightClickCb = cb; }
-  clearSelection(): void { this.renderMap(); }
+  clearSelection(): void { this.renderMap(); this.renderHover(); }
 }

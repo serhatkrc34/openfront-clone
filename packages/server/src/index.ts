@@ -15,7 +15,7 @@ app.get('/health', (_req, res) => {
 const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 
-const defaultRoom = new GameRoom('default', 512, 300);
+const defaultRoom = new GameRoom('default', 320, 200);
 defaultRoom.start();
 
 wss.on('connection', (ws) => {

@@ -56,7 +56,14 @@ export type MessageType =
   | 'ALLIANCE_PROPOSAL'
   | 'ALLIANCE_RESPONSE'
   | 'NUKE'
-  | 'NUKE_EVENT';
+  | 'NUKE_EVENT'
+  | 'PARTIAL_UPDATE';
+
+export interface PartialUpdatePayload {
+  changedTiles: Tile[];
+  players: Record<string, Player>;
+  buildings: Record<number, Building>;
+}
 
 export interface GameMessage {
   type: MessageType;
