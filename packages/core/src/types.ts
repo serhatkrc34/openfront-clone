@@ -1,6 +1,6 @@
 export type TileType = 'plains' | 'mountain' | 'highland' | 'ocean' | 'lake';
 export type OwnerId = string | null;
-export type BuildingType = 'city' | 'port' | 'sam' | 'silo' | 'factory';
+export type BuildingType = 'city' | 'port' | 'sam' | 'silo' | 'factory' | 'defensePost';
 
 export interface Tile {
   id: number;
@@ -21,15 +21,15 @@ export interface Building {
 export interface Player {
   id: string;
   name: string;
-  color: number; // hex color as 0xRRGGBB number
-  population: number;
+  color: number;
   troops: number;
-  workers: number;
+  maxTroops: number;
+  troopGrowthRate: number; // troops/tick, for HUD display
   gold: number;
-  troopRatio: number; // 0-1
   isEliminated: boolean;
   tileCount: number;
-  alliances: string[]; // player IDs allied with
+  alliances: string[];
+  isBot: boolean;
 }
 
 export interface GameState {
@@ -65,7 +65,7 @@ export interface GameMessage {
 
 export interface ConquerPayload {
   tileId: number;
-  percentage: number; // 0.1 to 1.0
+  percentage: number; // 0.1 to 1.0 — fraction of troops to commit
 }
 
 export interface BuildPayload {

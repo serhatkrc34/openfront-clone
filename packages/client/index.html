@@ -78,6 +78,42 @@
       text-shadow: 0 0 12px rgba(68,136,255,0.4);
     }
 
+    /* Troop bar */
+    .troop-bar-wrap { margin-bottom: 8px; }
+    .troop-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 3px;
+    }
+    .troop-bar-track {
+      height: 5px;
+      background: rgba(30, 60, 120, 0.4);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .troop-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #2255cc, #44aaff);
+      border-radius: 3px;
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+    .troop-bar-max {
+      font-size: 9px;
+      color: #3a5278;
+      text-align: right;
+      margin-top: 2px;
+    }
+    .growth-rate {
+      font-size: 10px;
+      font-weight: 700;
+      color: #44ee88;
+      margin-left: auto;
+      font-variant-numeric: tabular-nums;
+    }
+    .growth-rate.neg { color: #ff6644; }
+
     .stat-row {
       display: flex;
       justify-content: space-between;
@@ -721,25 +757,27 @@
     <!-- Player HUD — top left -->
     <div id="player-hud" class="panel">
       <div id="player-name">—</div>
-      <div class="stat-row">
-        <span class="stat-label"><span class="icon">⚔</span> Asker</span>
-        <span class="stat-value" id="stat-troops">0</span>
+
+      <!-- Troop bar -->
+      <div class="troop-bar-wrap">
+        <div class="troop-bar-row">
+          <span class="stat-label"><span class="icon">⚔</span> Asker</span>
+          <span class="stat-value" id="stat-troops">0</span>
+          <span id="stat-growth" class="growth-rate">+0/t</span>
+        </div>
+        <div class="troop-bar-track">
+          <div class="troop-bar-fill" id="troop-bar-fill"></div>
+        </div>
+        <div class="troop-bar-max" id="stat-max-troops">/ 0</div>
       </div>
-      <div class="stat-row">
-        <span class="stat-label"><span class="icon">⚒</span> İşçi</span>
-        <span class="stat-value" id="stat-workers">0</span>
-      </div>
-      <div class="stat-row">
-        <span class="stat-label"><span class="icon">👥</span> Nüfus</span>
-        <span class="stat-value" id="stat-pop">0</span>
-      </div>
+
       <div class="stat-row">
         <span class="stat-label"><span class="icon">💰</span> Altın</span>
         <span class="stat-value" id="stat-gold">0</span>
       </div>
       <div class="stat-row">
         <span class="stat-label"><span class="icon">🗺</span> Toprak</span>
-        <span class="stat-value" id="stat-tiles">0 tile</span>
+        <span class="stat-value" id="stat-tiles">0 kare</span>
       </div>
     </div>
 
@@ -756,7 +794,7 @@
             <th>Oyuncu</th>
             <th>Alan%</th>
             <th>Altın</th>
-            <th>Birlik</th>
+            <th>Asker</th>
           </tr>
         </thead>
         <tbody id="lb-list"></tbody>
@@ -765,11 +803,12 @@
 
     <!-- Building legend -->
     <div id="building-legend">
-      <div class="bld-row"><div class="bld-dot" style="background:#ffcc00"></div> Şehir (500g)</div>
-      <div class="bld-row"><div class="bld-dot" style="background:#00aaff"></div> Liman (300g)</div>
-      <div class="bld-row"><div class="bld-dot" style="background:#dd6600"></div> Fabrika (800g)</div>
-      <div class="bld-row"><div class="bld-dot" style="background:#ff3333"></div> SAM (800g)</div>
-      <div class="bld-row"><div class="bld-dot" style="background:#aaaaaa"></div> Silo (1200g)</div>
+      <div class="bld-row"><div class="bld-dot" style="background:#44cc44"></div> Kale (2K)</div>
+      <div class="bld-row"><div class="bld-dot" style="background:#00aaff"></div> Liman (4K)</div>
+      <div class="bld-row"><div class="bld-dot" style="background:#ffcc00"></div> Şehir (8K)</div>
+      <div class="bld-row"><div class="bld-dot" style="background:#dd6600"></div> Fabrika (8K)</div>
+      <div class="bld-row"><div class="bld-dot" style="background:#ff3333"></div> SAM (20K)</div>
+      <div class="bld-row"><div class="bld-dot" style="background:#aaaaaa"></div> Silo (40K)</div>
     </div>
 
     <!-- Mode hint bar -->
@@ -778,25 +817,35 @@
     <!-- Build panel — bottom left -->
     <div id="build-panel">
       <div id="build-panel-label">YAPI KUR</div>
+      <button class="bld-btn" id="btn-defensePost" data-type="defensePost">
+        <span class="bld-btn-icon">🛡</span>
+        <span class="bld-btn-name">Kale</span>
+        <span class="bld-btn-cost">2K</span>
+      </button>
+      <button class="bld-btn" id="btn-port"    data-type="port">
+        <span class="bld-btn-icon">⚓</span>
+        <span class="bld-btn-name">Liman</span>
+        <span class="bld-btn-cost">4K</span>
+      </button>
       <button class="bld-btn" id="btn-city"    data-type="city">
         <span class="bld-btn-icon">🏙</span>
         <span class="bld-btn-name">Şehir</span>
-        <span class="bld-btn-cost">500g</span>
+        <span class="bld-btn-cost">8K</span>
       </button>
       <button class="bld-btn" id="btn-factory" data-type="factory">
         <span class="bld-btn-icon">🏭</span>
         <span class="bld-btn-name">Fabrika</span>
-        <span class="bld-btn-cost">800g</span>
+        <span class="bld-btn-cost">8K</span>
       </button>
       <button class="bld-btn" id="btn-sam"     data-type="sam">
         <span class="bld-btn-icon">🚀</span>
         <span class="bld-btn-name">Hava Savunma</span>
-        <span class="bld-btn-cost">800g</span>
+        <span class="bld-btn-cost">20K</span>
       </button>
       <button class="bld-btn" id="btn-silo"    data-type="silo">
         <span class="bld-btn-icon">💣</span>
         <span class="bld-btn-name">Nükleer Silo</span>
-        <span class="bld-btn-cost">1200g</span>
+        <span class="bld-btn-cost">40K</span>
       </button>
       <button class="bld-btn" id="nuke-btn">
         <span class="bld-btn-icon">☢</span>
@@ -806,10 +855,10 @@
 
     <!-- Conquest controls — bottom center -->
     <div id="conquest-controls" class="panel">
-      <div id="conquest-controls-label">⚔ Saldırı Gücü</div>
+      <div id="conquest-controls-label">⚔ Saldırı Oranı</div>
       <div class="slider-row">
         <input type="range" id="troop-slider" min="10" max="100" step="5" value="50" />
-        <span id="troop-pct-label">50%</span>
+        <span id="troop-pct-label"><span id="troop-pct-val">50%</span> · <span id="troop-count-label">0</span></span>
       </div>
     </div>
 

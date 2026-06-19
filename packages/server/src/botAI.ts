@@ -53,7 +53,7 @@ export function addBot(
   name: string,
   colorIndex: number
 ): GameState {
-  const player = createPlayer(botId, name, colorIndex);
+  const player = createPlayer(botId, name, colorIndex, true);
 
   const newState: GameState = {
     ...state,

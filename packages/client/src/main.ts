@@ -21,8 +21,9 @@ const gameoverTitle      = document.getElementById('gameover-title')!;
 const gameoverMsg        = document.getElementById('gameover-msg')!;
 const playerNameEl       = document.getElementById('player-name')!;
 const statTroops         = document.getElementById('stat-troops')!;
-const statWorkers        = document.getElementById('stat-workers')!;
-const statPop            = document.getElementById('stat-pop')!;
+const statGrowth         = document.getElementById('stat-growth')!;
+const statMaxTroops      = document.getElementById('stat-max-troops')!;
+const troopBarFill       = document.getElementById('troop-bar-fill')!;
 const statGold           = document.getElementById('stat-gold')!;
 const statTiles          = document.getElementById('stat-tiles')!;
 const lbList             = document.getElementById('lb-list')!;
@@ -68,10 +69,14 @@ function updateHUD(state: GameState, playerId: string): void {
   playerNameEl.textContent = player.name;
   playerNameEl.style.color = numToHex(player.color);
   statTroops.textContent = fmt(player.troops);
-  statWorkers.textContent = fmt(player.workers);
-  statPop.textContent = fmt(player.population);
+  statMaxTroops.textContent = `/ ${fmt(player.maxTroops)}`;
+  const pct = player.maxTroops > 0 ? (player.troops / player.maxTroops) * 100 : 0;
+  (troopBarFill as HTMLElement).style.width = `${Math.min(100, pct).toFixed(1)}%`;
+  const growthTxt = `+${fmt(player.troopGrowthRate)}/t`;
+  statGrowth.textContent = growthTxt;
+  statGrowth.className = 'growth-rate';
   statGold.textContent = fmt(player.gold);
-  statTiles.textContent = `${player.tileCount} tile`;
+  statTiles.textContent = `${player.tileCount} kare`;
 }
 
 function updateLeaderboard(state: GameState): void {
@@ -93,7 +98,7 @@ function updateLeaderboard(state: GameState): void {
       <td><div class="lb-player-cell"><span class="lb-dot" style="background:${numToHex(p.color)}"></span><span class="lb-player-name">${p.name}${allianceBadge}</span></div></td>
       <td class="lb-pct">${pct}%</td>
       <td class="lb-gold">${fmt(p.gold)}</td>
-      <td class="lb-troops">${fmt(p.troops)}</td>
+      <td class="lb-troops">${fmt(p.maxTroops)}</td>
     </tr>`;
   }).join('');
 }
@@ -124,7 +129,12 @@ let nukePhase: 'idle' | 'select_silo' | 'select_target' = 'idle';
 let nukeSiloTileId: number | null = null;
 
 const BUILDING_COSTS_UI: Record<BuildingType, number> = {
-  city: 500, port: 300, sam: 800, silo: 1200, factory: 800,
+  defensePost: 2_000,
+  port:        4_000,
+  city:        8_000,
+  factory:     8_000,
+  sam:        20_000,
+  silo:       40_000,
 };
 
 function setModeHint(text: string, isNuke = false): void {
@@ -151,7 +161,7 @@ function enterBuildMode(type: BuildingType): void {
   exitSpecialMode();
   buildMode = type;
   const nameMap: Record<BuildingType, string> = {
-    city: 'Şehir', port: 'Liman', sam: 'Hava Savunma', silo: 'Nükleer Silo', factory: 'Fabrika',
+    defensePost: 'Kale', port: 'Liman', city: 'Şehir', factory: 'Fabrika', sam: 'Hava Savunma', silo: 'Nükleer Silo',
   };
   setModeHint(`${nameMap[type]} inşa et: Kendi toprağında bir kareye tıkla`);
   document.getElementById(`btn-${type}`)?.classList.add('active');
@@ -171,9 +181,9 @@ function updateBuildPanel(state: GameState | null, playerId: string | null): voi
   const gold = Math.floor(player.gold);
   buildBtns.forEach(btn => {
     const type = btn.dataset.type as BuildingType;
-    btn.disabled = gold < BUILDING_COSTS_UI[type];
+    const cost = BUILDING_COSTS_UI[type] ?? Infinity;
+    btn.disabled = gold < cost;
   });
-  // Enable nuke button only if player has a silo
   const hasSilo = Object.values(state.buildings).some(
     b => b.type === 'silo' && b.ownerId === playerId,
   );
@@ -190,12 +200,13 @@ function showBuildMenu(tile: Tile, x: number, y: number, state: GameState, clien
   const gold = myPlayerId ? Math.floor(state.players[myPlayerId]?.gold ?? 0) : 0;
   const hasBuilding = !!state.buildings[tile.id];
 
-  const items: { label: string; cost: number; type: BuildingType; disabled?: boolean }[] = [
-    { label: '🏙 Şehir', cost: 500, type: 'city' },
-    { label: '⚓ Liman', cost: 300, type: 'port' },
-    { label: '🏭 Fabrika', cost: 800, type: 'factory' },
-    { label: '🚀 SAM', cost: 800, type: 'sam' },
-    { label: '💣 Silo', cost: 1200, type: 'silo' },
+  const items: { label: string; cost: number; type: BuildingType }[] = [
+    { label: '🛡 Kale',         cost: 2_000,  type: 'defensePost' },
+    { label: '⚓ Liman',        cost: 4_000,  type: 'port' },
+    { label: '🏙 Şehir',        cost: 8_000,  type: 'city' },
+    { label: '🏭 Fabrika',      cost: 8_000,  type: 'factory' },
+    { label: '🚀 Hava Savunma', cost: 20_000, type: 'sam' },
+    { label: '💣 Nükleer Silo', cost: 40_000, type: 'silo' },
   ];
 
   const menuHtml = `
@@ -430,9 +441,17 @@ async function main(): Promise<void> {
 
   let currentState: GameState | null = null;
 
-  troopSlider.addEventListener('input', () => {
-    troopPctLabel.textContent = troopSlider.value + '%';
-  });
+  const troopPctVal     = document.getElementById('troop-pct-val')!;
+  const troopCountLabel = document.getElementById('troop-count-label')!;
+
+  function updateSliderLabel(): void {
+    const pct = Number(troopSlider.value);
+    troopPctVal.textContent = `${pct}%`;
+    const troops = myPlayerId && currentState ? (currentState.players[myPlayerId]?.troops ?? 0) : 0;
+    troopCountLabel.textContent = fmt(Math.floor(troops * pct / 100));
+  }
+
+  troopSlider.addEventListener('input', updateSliderLabel);
 
   document.addEventListener('mousemove', (e: MouseEvent) => {
     if (tileTooltip.style.display !== 'none') {
@@ -654,6 +673,7 @@ async function main(): Promise<void> {
     updateLeaderboard(currentState);
     renderer.updatePlayers(players);
     updateBuildPanel(currentState, myPlayerId);
+    updateSliderLabel();
   });
 
   client.onServerError((msg) => {

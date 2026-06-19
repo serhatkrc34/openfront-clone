@@ -23,11 +23,12 @@ const ELEVATION_BASE: Record<TileType, number> = {
 };
 
 const BUILDING_COLORS: Record<Building['type'], number> = {
-  city:    0xffcc00,
-  port:    0x00aaff,
-  sam:     0xff3333,
-  silo:    0xaaaaaa,
-  factory: 0xdd6600,
+  city:        0xffcc00,
+  port:        0x00aaff,
+  sam:         0xff3333,
+  silo:        0xaaaaaa,
+  factory:     0xdd6600,
+  defensePost: 0x44cc44,
 };
 
 function hexToRgb(hex: number): { r: number; g: number; b: number } {
@@ -349,6 +350,19 @@ export class Renderer {
           const pulse = 0.5 + 0.5 * Math.sin(now / 500);
           g.circle(cx, cy, ts * 0.6);
           g.stroke({ color: 0xdddddd, width: 0.6, alpha: pulse * 0.6 });
+          break;
+        }
+        case 'defensePost': {
+          // Shield hexagon pulse
+          const pulse = 0.5 + 0.5 * Math.sin(now / 600);
+          const r = ts * 1.6 + pulse * ts * 0.4;
+          for (let i = 0; i < 6; i++) {
+            const a0 = (i / 6) * Math.PI * 2;
+            const a1 = ((i + 1) / 6) * Math.PI * 2;
+            if (i === 0) g.moveTo(cx + Math.cos(a0) * r, cy + Math.sin(a0) * r);
+            g.lineTo(cx + Math.cos(a1) * r, cy + Math.sin(a1) * r);
+          }
+          g.stroke({ color: 0x44cc44, width: 0.7, alpha: 0.4 + pulse * 0.3 });
           break;
         }
       }
